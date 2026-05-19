@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #d8f7f8;
+  background: #071016;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(16, 52, 60, 0.26) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 52, 60, 0.2) 1px, transparent 1px),
+    radial-gradient(circle at 50% 0%, rgba(38, 214, 197, 0.14), transparent 34%),
+    #071016;
+  background-size: 42px 42px, 42px 42px, auto, auto;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-line/80 bg-panel/80 shadow-[0_18px_60px_rgba(0,0,0,0.24)] backdrop-blur;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold transition;
+  }
+
+  .btn-main {
+    @apply btn bg-sea text-ink hover:bg-cyanSoft;
+  }
+
+  .btn-ghost {
+    @apply btn border border-line bg-white/5 text-slate-100 hover:border-sea/60 hover:bg-sea/10;
+  }
+
+  .muted {
+    @apply text-slate-400;
+  }
+
+  .cat-pill {
+    @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold;
+  }
+}
