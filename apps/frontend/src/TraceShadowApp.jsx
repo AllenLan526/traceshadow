@@ -17,6 +17,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 const apiBase = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:4000' : '')
+const hasLiveApi = Boolean(import.meta.env.DEV || import.meta.env.VITE_API_BASE)
 const emptyLiveStats = { totalRequests: 0, thirdPartyRequestCount: 0, uniqueThirdPartyDomains: 0 }
 
 export default function TraceShadowApp() {
@@ -201,11 +202,20 @@ export default function TraceShadowApp() {
 }
 
 async function analyzeUrl(url, onEvent) {
+  if (!hasLiveApi) {
+    onEvent({ type: 'status', message: 'Live API unavailable. Loading demo scan...' })
+    return loadDemoScan('This public Vercel deployment does not have a live Python scan API attached, so TraceShadow loaded the built-in demo scan instead.')
+  }
+
   const res = await fetch(`${apiBase}/api/analyze-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
   })
+
+  if (res.status === 404) {
+    return loadDemoScan('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
+  }
 
   if (!res.ok || !res.body) return analyzeUrlOnce(url)
 
@@ -256,6 +266,10 @@ async function analyzeUrlOnce(url) {
     body: JSON.stringify({ url })
   })
 
+  if (res.status === 404) {
+    return loadDemoScan('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
+  }
+
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error(data.error || 'TraceShadow could not scan that page.')
@@ -275,15 +289,28 @@ function parseScanEvent(line) {
   }
 }
 
-async function loadDemoScan() {
+async function loadDemoScan(extraWarning) {
   try {
     const res = await fetch(`${apiBase}/api/demo`)
-    if (res.ok) return res.json()
+    if (res.ok) {
+      const data = await res.json()
+      return withExtraWarning(data, extraWarning)
+    }
   } catch {
     // The local demo keeps the button useful even when the backend is offline.
   }
 
-  return localDemo
+  return withExtraWarning(localDemo, extraWarning)
+}
+
+function withExtraWarning(data, extraWarning) {
+  if (!extraWarning) return data
+  if (data.warnings.includes(extraWarning)) return data
+
+  return {
+    ...data,
+    warnings: [extraWarning, ...data.warnings]
+  }
 }
 
 function UrlForm(props) {
