@@ -1,0 +1,7 @@
+.git
+.vercel
+node_modules
+apps/frontend
+apps/backend/app/__pycache__
+*.log
+.DS_Store

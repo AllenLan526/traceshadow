@@ -175,11 +175,14 @@ Build command: npm run build
 Output directory: apps/frontend/dist
 ```
 
-Backend on Render, Railway, or Fly.io:
+Backend on Render:
 
 ```text
-Build command: pip install -r apps/backend/requirements.txt && python -m playwright install chromium
-Start command: uvicorn apps.backend.app.main:app --host 0.0.0.0 --port $PORT
+Blueprint file: render.yaml
+Service type: web
+Runtime: docker
+Dockerfile: apps/backend/Dockerfile
+Health check: /api/health
 ```
 
 After the backend is deployed, add this environment variable to the Vercel frontend:
@@ -187,6 +190,14 @@ After the backend is deployed, add this environment variable to the Vercel front
 ```text
 VITE_API_BASE=https://your-python-backend-url
 ```
+
+For Render, set:
+
+```text
+CORS_ORIGIN=https://traceshadow-lime.vercel.app
+```
+
+Then redeploy the Vercel frontend after `VITE_API_BASE` is set so the public site uses the live scanner instead of the demo fallback.
 
 Current public frontend deployment:
 

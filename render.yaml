@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: traceshadow-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/backend/Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: SCAN_TIMEOUT_MS
+        value: 15000
+      - key: CORS_ORIGIN
+        sync: false
