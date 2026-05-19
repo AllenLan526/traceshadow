@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Clock,
   Code2,
-  Database,
   ExternalLink,
   Eye,
   Globe2,
@@ -16,8 +15,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-const apiBase = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:4000' : '')
-const hasLiveApi = Boolean(import.meta.env.DEV || import.meta.env.VITE_API_BASE)
+const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
 const emptyLiveStats = { totalRequests: 0, thirdPartyRequestCount: 0, uniqueThirdPartyDomains: 0 }
 
 export default function TraceShadowApp() {
@@ -54,20 +52,6 @@ export default function TraceShadowApp() {
       setBusy(false)
       setLiveStatus('')
     }
-  }
-
-  async function runDemo() {
-    setBusy(true)
-    setError('')
-    setLiveStatus('')
-    setLiveDomains([])
-    setLiveWarnings([])
-    setLiveStats(emptyLiveStats)
-
-    const next = await loadDemoScan()
-    setResult(next)
-    setSelected(next.domains[0])
-    setBusy(false)
   }
 
   function handleScanEvent(event) {
@@ -125,7 +109,7 @@ export default function TraceShadowApp() {
           </div>
         </header>
 
-        <UrlForm url={url} busy={busy} onUrl={setUrl} onScan={runScan} onDemo={runDemo} />
+        <UrlForm url={url} busy={busy} onUrl={setUrl} onScan={runScan} />
 
         <div className="mt-5 space-y-5">
           {busy && <LoadingPanel status={liveStatus} foundCount={liveDomains.length} />}
@@ -147,7 +131,6 @@ export default function TraceShadowApp() {
                 <div>
                   <h2 className="font-semibold text-amber-100">Scan blocked or failed</h2>
                   <p className="mt-2 text-sm leading-6 text-amber-100/80">{error}</p>
-                  <button className="btn-main mt-4" onClick={runDemo} type="button">Load Demo Scan</button>
                 </div>
               </div>
             </section>
@@ -202,22 +185,16 @@ export default function TraceShadowApp() {
 }
 
 async function analyzeUrl(url, onEvent) {
-  if (!hasLiveApi) {
-    onEvent({ type: 'status', message: 'Live API unavailable. Loading demo scan...' })
-    return loadLocalDemo('This public Vercel deployment does not have a live Python scan API attached, so TraceShadow loaded the built-in demo scan instead.')
-  }
-
   const res = await fetch(`${apiBase}/api/analyze-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
   })
 
-  if (res.status === 404) {
-    return loadLocalDemo('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || 'TraceShadow could not scan that page.')
   }
-
-  if (!res.ok || !res.body) return analyzeUrlOnce(url)
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
@@ -259,25 +236,6 @@ async function analyzeUrl(url, onEvent) {
   return finalResult
 }
 
-async function analyzeUrlOnce(url) {
-  const res = await fetch(`${apiBase}/api/analyze`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
-  })
-
-  if (res.status === 404) {
-    return loadLocalDemo('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
-  }
-
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(data.error || 'TraceShadow could not scan that page.')
-  }
-
-  return data
-}
-
 function parseScanEvent(line) {
   const trimmed = line.trim()
   if (!trimmed) return null
@@ -286,36 +244,6 @@ function parseScanEvent(line) {
     return JSON.parse(trimmed)
   } catch {
     return null
-  }
-}
-
-async function loadDemoScan(extraWarning) {
-  if (!hasLiveApi) return loadLocalDemo(extraWarning)
-
-  try {
-    const res = await fetch(`${apiBase}/api/demo`)
-    if (res.ok) {
-      const data = await res.json()
-      return withExtraWarning(data, extraWarning)
-    }
-  } catch {
-    // The local demo keeps the button useful even when the backend is offline.
-  }
-
-  return loadLocalDemo(extraWarning)
-}
-
-function loadLocalDemo(extraWarning) {
-  return withExtraWarning(localDemo, extraWarning)
-}
-
-function withExtraWarning(data, extraWarning) {
-  if (!extraWarning) return data
-  if (data.warnings.includes(extraWarning)) return data
-
-  return {
-    ...data,
-    warnings: [extraWarning, ...data.warnings]
   }
 }
 
@@ -343,11 +271,6 @@ function UrlForm(props) {
         <button className="btn-main h-12" disabled={props.busy} type="submit">
           <Play className="h-4 w-4" />
           Analyze
-        </button>
-
-        <button className="btn-ghost h-12" disabled={props.busy} type="button" onClick={props.onDemo}>
-          <Database className="h-4 w-4" />
-          Load Demo Scan
         </button>
       </div>
     </form>
@@ -712,87 +635,4 @@ const graphColors = {
   social: '#f08bd2',
   tagManager: '#c6a0ff',
   unknown: '#94a3b8'
-}
-
-const localDemo = {
-  inputUrl: 'https://news-example.test',
-  finalUrl: 'https://news-example.test/',
-  firstPartyDomain: 'news-example.test',
-  scanTimeMs: 1380,
-  totalRequests: 43,
-  thirdPartyRequestCount: 35,
-  uniqueThirdPartyDomains: 5,
-  categories: {
-    analytics: 1,
-    ads: 1,
-    cdn: 2,
-    social: 1,
-    tagManager: 0,
-    unknown: 0
-  },
-  score: {
-    value: 63,
-    label: 'High exposure',
-    explanation: 'This page loads 5 third-party domains, analytics tools, advertising domains, and social widgets. This score is an educational approximation, not a professional privacy audit.'
-  },
-  domains: [
-    {
-      domain: 'cdn.newsexample.test',
-      category: 'cdn',
-      requestCount: 14,
-      resourceTypes: ['script', 'stylesheet', 'image'],
-      sampleUrls: ['https://cdn.newsexample.test/app-shell.js', 'https://cdn.newsexample.test/styles/home.css'],
-      explanation: 'CDNs serve shared files such as scripts, images, fonts, and styles from external infrastructure.'
-    },
-    {
-      domain: 'analytics.examplemetrics.test',
-      category: 'analytics',
-      requestCount: 6,
-      resourceTypes: ['script', 'xhr'],
-      sampleUrls: ['https://analytics.examplemetrics.test/track.js', 'https://analytics.examplemetrics.test/collect?page=front'],
-      explanation: 'Analytics services measure visits, page views, clicks, and other user behavior.'
-    },
-    {
-      domain: 'ads.adnetwork.test',
-      category: 'ads',
-      requestCount: 8,
-      resourceTypes: ['script', 'image', 'xhr'],
-      sampleUrls: ['https://ads.adnetwork.test/bid.js', 'https://ads.adnetwork.test/pixel.gif'],
-      explanation: 'Advertising domains can load ad slots, bidding scripts, targeting pixels, or conversion trackers.'
-    },
-    {
-      domain: 'social.sharewidget.test',
-      category: 'social',
-      requestCount: 4,
-      resourceTypes: ['script', 'image'],
-      sampleUrls: ['https://social.sharewidget.test/widget.js', 'https://social.sharewidget.test/icons/x.svg'],
-      explanation: 'Social widgets can load share buttons, embeds, login tools, or tracking pixels from social platforms.'
-    },
-    {
-      domain: 'fonts.fastcdn.test',
-      category: 'cdn',
-      requestCount: 3,
-      resourceTypes: ['font', 'stylesheet'],
-      sampleUrls: ['https://fonts.fastcdn.test/inter.css', 'https://fonts.fastcdn.test/inter-var.woff2'],
-      explanation: 'CDNs serve shared files such as scripts, images, fonts, and styles from external infrastructure.'
-    }
-  ],
-  graph: {
-    nodes: [
-      { id: 'news-example.test', label: 'news-example.test', type: 'firstParty' },
-      { id: 'cdn.newsexample.test', label: 'News CDN', type: 'thirdParty', category: 'cdn' },
-      { id: 'analytics.examplemetrics.test', label: 'Example Metrics', type: 'thirdParty', category: 'analytics' },
-      { id: 'ads.adnetwork.test', label: 'Ad Network', type: 'thirdParty', category: 'ads' },
-      { id: 'social.sharewidget.test', label: 'Share Widget', type: 'thirdParty', category: 'social' },
-      { id: 'fonts.fastcdn.test', label: 'Fast Fonts', type: 'thirdParty', category: 'cdn' }
-    ],
-    edges: [
-      { id: 'news-example.test-cdn.newsexample.test', source: 'news-example.test', target: 'cdn.newsexample.test', requestCount: 14 },
-      { id: 'news-example.test-analytics.examplemetrics.test', source: 'news-example.test', target: 'analytics.examplemetrics.test', requestCount: 6 },
-      { id: 'news-example.test-ads.adnetwork.test', source: 'news-example.test', target: 'ads.adnetwork.test', requestCount: 8 },
-      { id: 'news-example.test-social.sharewidget.test', source: 'news-example.test', target: 'social.sharewidget.test', requestCount: 4 },
-      { id: 'news-example.test-fonts.fastcdn.test', source: 'news-example.test', target: 'fonts.fastcdn.test', requestCount: 3 }
-    ]
-  },
-  warnings: ['Demo scan uses fictional domains for a reliable presentation workflow.']
 }

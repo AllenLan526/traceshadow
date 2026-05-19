@@ -7,7 +7,7 @@ import time
 from typing import Callable
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from playwright.async_api import Request as PlaywrightRequest
@@ -36,17 +36,12 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return PlainTextResponse("TraceShadow API is running. Try /api/health, /api/demo, or POST /api/analyze.")
+    return PlainTextResponse("TraceShadow API is running. Try /api/health or POST /api/analyze.")
 
 
 @app.get("/api/health")
 async def health():
     return {"ok": True, "name": "TraceShadow"}
-
-
-@app.get("/api/demo")
-async def demo():
-    return demo_result()
 
 
 @app.post("/api/analyze")
@@ -59,15 +54,14 @@ async def analyze(request: Request):
     except AppError as err:
         return JSONResponse(
             status_code=err.status,
-            content={"error": str(err), "code": err.code, "demoAvailable": True},
+            content={"error": str(err), "code": err.code},
         )
     except Exception as err:
         return JSONResponse(
             status_code=500,
             content={
-                "error": f"Scan failed: {err}. Some sites block automated browsers; try demo mode if needed.",
+                "error": f"Scan failed: {err}. Some sites block automated browsers or take too long to respond.",
                 "code": "scan_failed",
-                "demoAvailable": True,
             },
         )
 
@@ -89,7 +83,7 @@ async def analyze_stream(request: Request):
         except Exception as err:
             send({
                 "type": "error",
-                "error": f"Scan failed: {err}. Some sites block automated browsers; try demo mode if needed.",
+                "error": f"Scan failed: {err}. Some sites block automated browsers or take too long to respond.",
                 "code": "scan_failed",
             })
         finally:
@@ -353,10 +347,10 @@ def calc_score(total_requests: int, unique_domains: int, categories: dict):
 
 RULES = {
     "tagManager": ["googletagmanager.com", "tagmanager"],
-    "analytics": ["google-analytics.com", "plausible.io", "segment.com", "amplitude.com", "mixpanel.com", "hotjar.com", "examplemetrics.test"],
-    "ads": ["doubleclick.net", "googlesyndication.com", "adservice.google.com", "adsystem.com", "taboola.com", "outbrain.com", "adnetwork.test"],
-    "cdn": ["cloudflare.com", "cloudfront.net", "akamai", "jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com", "fastcdn.test", "cdn.newsexample.test"],
-    "social": ["facebook.net", "facebook.com", "instagram.com", "twitter.com", "x.com", "tiktok.com", "linkedin.com", "sharewidget.test"],
+    "analytics": ["google-analytics.com", "plausible.io", "segment.com", "amplitude.com", "mixpanel.com", "hotjar.com"],
+    "ads": ["doubleclick.net", "googlesyndication.com", "adservice.google.com", "adsystem.com", "taboola.com", "outbrain.com"],
+    "cdn": ["cloudflare.com", "cloudfront.net", "akamai", "jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com"],
+    "social": ["facebook.net", "facebook.com", "instagram.com", "twitter.com", "x.com", "tiktok.com", "linkedin.com"],
 }
 
 
@@ -390,11 +384,6 @@ def short_label(domain: str):
         "www.googletagmanager.com": "Google Tag Manager",
         "googletagmanager.com": "Google Tag Manager",
         "connect.facebook.net": "Facebook",
-        "cdn.newsexample.test": "News CDN",
-        "analytics.examplemetrics.test": "Example Metrics",
-        "ads.adnetwork.test": "Ad Network",
-        "social.sharewidget.test": "Share Widget",
-        "fonts.fastcdn.test": "Fast Fonts",
     }
     return known.get(domain, domain.removeprefix("www."))
 
@@ -502,75 +491,6 @@ def add_warning(warnings: list[str], message: str, send: SendEvent | None):
 def emit(send: SendEvent | None, event: ScanEvent):
     if send:
         send(event)
-
-
-def demo_result():
-    first_party_domain = "news-example.test"
-    domains = [
-        demo_domain("cdn.newsexample.test", "cdn", 14, ["script", "stylesheet", "image"], [
-            "https://cdn.newsexample.test/app-shell.js",
-            "https://cdn.newsexample.test/styles/home.css",
-            "https://cdn.newsexample.test/images/hero.webp",
-        ]),
-        demo_domain("analytics.examplemetrics.test", "analytics", 6, ["script", "xhr"], [
-            "https://analytics.examplemetrics.test/track.js",
-            "https://analytics.examplemetrics.test/collect?page=front",
-        ]),
-        demo_domain("ads.adnetwork.test", "ads", 8, ["script", "image", "xhr"], [
-            "https://ads.adnetwork.test/bid.js",
-            "https://ads.adnetwork.test/pixel.gif",
-        ]),
-        demo_domain("social.sharewidget.test", "social", 4, ["script", "image"], [
-            "https://social.sharewidget.test/widget.js",
-            "https://social.sharewidget.test/icons/x.svg",
-        ]),
-        demo_domain("fonts.fastcdn.test", "cdn", 3, ["font", "stylesheet"], [
-            "https://fonts.fastcdn.test/inter.css",
-            "https://fonts.fastcdn.test/inter-var.woff2",
-        ]),
-    ]
-
-    categories = {"analytics": 1, "ads": 1, "cdn": 2, "social": 1, "tagManager": 0, "unknown": 0}
-
-    return {
-        "inputUrl": "https://news-example.test",
-        "finalUrl": "https://news-example.test/",
-        "firstPartyDomain": first_party_domain,
-        "scanTimeMs": 1380,
-        "totalRequests": 43,
-        "thirdPartyRequestCount": 35,
-        "uniqueThirdPartyDomains": len(domains),
-        "categories": categories,
-        "score": calc_score(43, len(domains), categories),
-        "domains": domains,
-        "graph": {
-            "nodes": [{"id": first_party_domain, "label": first_party_domain, "type": "firstParty"}] + [
-                {"id": item["domain"], "label": short_label(item["domain"]), "type": "thirdParty", "category": item["category"]}
-                for item in domains
-            ],
-            "edges": [
-                {
-                    "id": f"{first_party_domain}-{item['domain']}",
-                    "source": first_party_domain,
-                    "target": item["domain"],
-                    "requestCount": item["requestCount"],
-                }
-                for item in domains
-            ],
-        },
-        "warnings": ["Demo scan uses fictional domains for a reliable presentation workflow."],
-    }
-
-
-def demo_domain(domain: str, category: Cat, request_count: int, resource_types: list[ResType], sample_urls: list[str]):
-    return {
-        "domain": domain,
-        "category": category,
-        "requestCount": request_count,
-        "resourceTypes": resource_types,
-        "sampleUrls": sample_urls,
-        "explanation": explain_cat(category),
-    }
 
 
 class AppError(Exception):

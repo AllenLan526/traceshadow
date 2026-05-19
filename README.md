@@ -1,24 +1,43 @@
 # TraceShadow
 
-TraceShadow is a browser-based privacy visibility tool for BasisHacks 2026. A user enters a website URL, and the app reveals the third-party domains, scripts, trackers, analytics tools, CDNs, ad networks, and social widgets that load beneath the surface of the page.
+TraceShadow is a web app for BasisHacks 2026. A user enters a website URL, and the app reveals the hidden third-party domains, scripts, trackers, analytics tools, CDNs, ad systems, and social widgets that load behind the visible page.
+
+The central idea of this project is simple. Most websites look calm and self-contained when you first open them, but that surface is misleading. Underneath, the browser is often reaching outward again and again to outside systems. TraceShadow turns that hidden traffic into something a person can actually see, follow, and explain.
 
 ## Theme Connection
 
-Most websites look simple on the surface, but underneath they load scripts, trackers, analytics tools, ad networks, CDNs, and social widgets. TraceShadow makes these invisible systems visible, turning hidden network activity into an understandable map.
+This project is built around the theme **"Beneath the Surface."**
 
-The project connects to **"Beneath the Surface"** by turning something invisible into something readable. A normal website feels like one page, but the browser quietly reaches out to many outside systems. TraceShadow shows that hidden layer as evidence: domains, request counts, categories, and a graph that makes the buried structure visible.
+On the surface, a website can feel like one clean page. Underneath that surface, it may be pulling in analytics, ads, fonts, CDNs, social widgets, and tracking tools from many different domains. TraceShadow makes that hidden layer visible. It takes something quiet and buried inside the browser and turns it into evidence: domains, categories, request counts, a graph, and a plain-language explanation.
 
-## Features
+That is why the theme connection is not just decorative. The project works because the hidden layer is the project.
 
-- Live scan updates that show hidden domains as soon as they are found
-- Python FastAPI backend that uses Playwright to collect browser network requests
-- JavaScript React frontend with a clear analyzer flow
-- Rule-based classifier for analytics, ads, CDN, social, tag manager, and unknown domains
-- Privacy exposure score from 0 to 100 with a transparent formula
-- Interactive network graph powered by Cytoscape.js
-- Summary cards, domain table, and click-to-inspect domain details
-- Honest error handling for blocked pages
-- Built-in demo scan for reliable hackathon demos
+## What the App Shows
+
+TraceShadow is meant to be understandable quickly, especially in a hackathon demo. The app shows:
+
+- a live scan panel that updates as hidden domains are found
+- summary cards for request counts and scan time
+- a privacy exposure score from 0 to 100
+- a graph that places the scanned website in the center and third-party domains around it
+- a table of detected domains and categories
+- a details panel with sample URLs and plain-English explanations
+
+The score is intentionally simple and transparent. It is an educational estimate, not a professional privacy audit.
+
+## How It Works
+
+The app follows one clear path from input to explanation.
+
+1. The user enters a website URL.
+2. The frontend sends that URL to the backend.
+3. The backend validates the URL and blocks unsafe targets like localhost or private IPs.
+4. Playwright opens the page in a headless browser and listens to network requests.
+5. TraceShadow groups requests by domain and classifies them with local rules.
+6. The backend returns structured results.
+7. The frontend turns those results into cards, a graph, a table, and short explanations.
+
+This structure matters because it keeps the project explainable. Every part of the interface comes from the same evidence trail.
 
 ## Tech Stack
 
@@ -26,58 +45,54 @@ The project connects to **"Beneath the Surface"** by turning something invisible
 - Graph: Cytoscape.js
 - Backend: Python, FastAPI, Uvicorn
 - Browser analysis: Playwright
+- Frontend hosting: Vercel
+- Backend hosting: Render
 
-## Project Structure
+## Project Layout
+
+The source is intentionally compressed so the main logic is easy to review.
 
 ```text
 traceshadow/
   README.md
   package.json
+  render.yaml
   vercel.json
   apps/
     backend/
       requirements.txt
+      Dockerfile
       app/
-        __init__.py
-        main.py          Python API, scanning, classification, score, demo data
+        main.py
     frontend/
       index.html
       vite.config.js
+      tailwind.config.js
       src/
         main.jsx
         TraceShadowApp.jsx
         index.css
 ```
 
-The source is intentionally compressed so the main hackathon logic is easy to review. `main.py` contains the backend scan pipeline, and `TraceShadowApp.jsx` contains the full user experience. This makes the project easier to explain because the evidence moves in one clear direction: URL input, browser scan, hidden domains, score, graph, and explanation.
+The backend logic mainly lives in `main.py`, and the frontend experience mainly lives in `TraceShadowApp.jsx`. That decision was intentional. In a hackathon project, clarity is often more valuable than elegance, because a clean explanation is part of what makes the work convincing.
 
-## Local Setup
+## Run Locally
 
-Install the frontend dependencies:
+Install the project:
 
 ```bash
 npm install
-```
-
-Install the Python backend dependencies:
-
-```bash
 npm run install:backend
-```
-
-Install the Playwright Chromium browser for Python:
-
-```bash
 npm run install:browsers
 ```
 
-Run both apps:
+Start both frontend and backend:
 
 ```bash
 npm run dev
 ```
 
-Open the frontend at:
+Then open:
 
 ```text
 http://localhost:5173
@@ -89,53 +104,33 @@ The backend runs at:
 http://localhost:4000
 ```
 
-## Running Apps Separately
-
-Backend:
-
-```bash
-npm run dev:backend
-```
-
-Frontend:
+If you want to run them separately:
 
 ```bash
 npm run dev:frontend
-```
-
-## Troubleshooting Local Ports
-
-If `npm run dev` says port `4000` or `5173` is already in use, an older dev server is still running. Stop it with `Ctrl+C` in the old terminal, or find the process:
-
-```bash
-lsof -nP -iTCP:4000 -sTCP:LISTEN
-lsof -nP -iTCP:5173 -sTCP:LISTEN
-```
-
-Then stop the listed PID:
-
-```bash
-kill <PID>
+npm run dev:backend
 ```
 
 ## Environment Variables
 
-Backend optional variables:
+Most local development works without much setup, but these variables are available when needed.
+
+Backend:
 
 ```text
 CORS_ORIGIN=http://localhost:5173
 SCAN_TIMEOUT_MS=15000
 ```
 
-Frontend optional variables:
+Frontend:
 
 ```text
 VITE_API_BASE=http://localhost:4000
 ```
 
-For production, set `VITE_API_BASE` to the public URL of the Python backend. If the frontend is deployed without a backend URL, the built-in demo scan still works, but live scanning needs the API.
+In production, `VITE_API_BASE` should point to the public backend URL.
 
-## API
+## API Endpoints
 
 Health check:
 
@@ -151,7 +146,7 @@ curl -X POST http://localhost:4000/api/analyze \
   -d '{"url":"https://example.com"}'
 ```
 
-Stream a URL scan as newline-delimited JSON:
+Stream live scan updates:
 
 ```bash
 curl -N -X POST http://localhost:4000/api/analyze-stream \
@@ -159,86 +154,70 @@ curl -N -X POST http://localhost:4000/api/analyze-stream \
   -d '{"url":"https://example.com"}'
 ```
 
-Demo data:
-
-```bash
-curl http://localhost:4000/api/demo
-```
-
 ## Deployment
 
-Frontend on Vercel:
+The frontend is deployed on Vercel, and the live scanner runs on Render.
 
-```text
-Install command: npm install
-Build command: npm run build
-Output directory: apps/frontend/dist
-```
-
-Backend on Render:
-
-```text
-Blueprint file: render.yaml
-Service type: web
-Runtime: docker
-Dockerfile: apps/backend/Dockerfile
-Health check: /api/health
-```
-
-After the backend is deployed, add this environment variable to the Vercel frontend:
-
-```text
-VITE_API_BASE=https://your-python-backend-url
-```
-
-For Render, set:
-
-```text
-CORS_ORIGIN=https://traceshadow-lime.vercel.app
-```
-
-Then redeploy the Vercel frontend after `VITE_API_BASE` is set so the public site uses the live scanner instead of the demo fallback.
-
-Current public frontend deployment:
+Frontend:
 
 ```text
 https://traceshadow-lime.vercel.app
 ```
 
-## Demo Video Workflow
+Backend health check:
 
-Use this for a 1 to 3 minute demo:
+```text
+https://traceshadow-api.onrender.com/api/health
+```
 
-1. Open TraceShadow and enter a public website URL.
-2. Point out the live scan panel as domains appear while the page is still loading.
-3. Show the loading steps: opening the page, collecting requests, classifying domains, building the graph.
-4. Explain the summary cards and privacy exposure score after the final dashboard appears.
-5. Click graph nodes to show hidden third-party domains and sample requests.
-6. Open the tracker table and point out analytics, ads, CDN, social, and tag manager categories.
-7. Click `Load Demo Scan` to show the fallback path for sites that block scanning.
-8. Close by connecting the project to "Beneath the Surface."
+Render uses the root `render.yaml` blueprint and the backend Dockerfile at `apps/backend/Dockerfile`.
 
-Demo video link: `TODO add final 1-3 minute video link`
+The main production variables are:
 
-Public demo URL: `https://traceshadow-lime.vercel.app`
+```text
+VITE_API_BASE=https://traceshadow-api.onrender.com
+CORS_ORIGIN=https://traceshadow-lime.vercel.app
+```
 
-## Known Limitations
+This split deployment is practical for a reason. Vercel is a good fit for the frontend, but the Playwright-based backend needs a host that can support a heavier browser runtime. The architecture looks slightly more complex from the outside, but it is actually the simplest version that reliably works.
 
-- The privacy exposure score is an educational approximation, not a professional privacy audit.
-- Some websites block headless browsers or delay requests until user interaction.
+## Demo Plan
+
+This is the clearest 1 to 3 minute demo flow:
+
+1. Open TraceShadow.
+2. Enter a public website URL and start a scan.
+3. Show the live findings panel as domains appear before the scan finishes.
+4. Explain the final cards, graph, and exposure score.
+5. Click a few detected domains and show the explanations.
+6. End by reconnecting everything to the theme: what looked like one page was actually a hidden network.
+
+Demo video link:
+
+```text
+TODO add final video link
+```
+
+## Limitations
+
+- The exposure score is an educational approximation.
+- Some sites block headless browsers.
 - The classifier is rule-based and intentionally simple.
-- The app does not bypass anti-bot protections.
-- User-submitted URLs are scanned in memory and are not stored permanently.
-- The frontend can be hosted on Vercel, but the live scanner should run on a Python backend host that supports Playwright.
+- The app does not try to bypass anti-bot protections.
+- The free Render instance may take longer on the first request after inactivity.
+
+These limits are important to say out loud because honesty is part of the project’s credibility. The app is strongest when it presents hidden systems clearly without pretending to be more than it is.
 
 ## Future Improvements
 
-- Add exportable reports
-- Add side-by-side website comparison
-- Improve classifier rules
-- Detect cookie banners and consent tools
-- Add historical scan comparison if storage is added later
+- add exportable reports
+- improve classifier coverage
+- compare two websites side by side
+- detect more consent and privacy tools
+- store historical scans for comparison
 
 ## License
 
 MIT
+
+In the end, TraceShadow is about more than scanning requests. It is about the habit of looking past the first surface of things, because understanding often begins when we notice what was quietly there all along.
