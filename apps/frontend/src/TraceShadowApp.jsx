@@ -204,7 +204,7 @@ export default function TraceShadowApp() {
 async function analyzeUrl(url, onEvent) {
   if (!hasLiveApi) {
     onEvent({ type: 'status', message: 'Live API unavailable. Loading demo scan...' })
-    return loadDemoScan('This public Vercel deployment does not have a live Python scan API attached, so TraceShadow loaded the built-in demo scan instead.')
+    return loadLocalDemo('This public Vercel deployment does not have a live Python scan API attached, so TraceShadow loaded the built-in demo scan instead.')
   }
 
   const res = await fetch(`${apiBase}/api/analyze-stream`, {
@@ -214,7 +214,7 @@ async function analyzeUrl(url, onEvent) {
   })
 
   if (res.status === 404) {
-    return loadDemoScan('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
+    return loadLocalDemo('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
   }
 
   if (!res.ok || !res.body) return analyzeUrlOnce(url)
@@ -267,7 +267,7 @@ async function analyzeUrlOnce(url) {
   })
 
   if (res.status === 404) {
-    return loadDemoScan('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
+    return loadLocalDemo('This deployment could not find the live scan API routes, so TraceShadow loaded the built-in demo scan instead.')
   }
 
   const data = await res.json().catch(() => ({}))
@@ -290,6 +290,8 @@ function parseScanEvent(line) {
 }
 
 async function loadDemoScan(extraWarning) {
+  if (!hasLiveApi) return loadLocalDemo(extraWarning)
+
   try {
     const res = await fetch(`${apiBase}/api/demo`)
     if (res.ok) {
@@ -300,6 +302,10 @@ async function loadDemoScan(extraWarning) {
     // The local demo keeps the button useful even when the backend is offline.
   }
 
+  return loadLocalDemo(extraWarning)
+}
+
+function loadLocalDemo(extraWarning) {
   return withExtraWarning(localDemo, extraWarning)
 }
 
