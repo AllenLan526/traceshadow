@@ -1,6 +1,7 @@
 import { lookup } from 'node:dns/promises'
 import net from 'node:net'
-import { chromium, type Request } from 'playwright'
+import serverlessChromium from '@sparticuz/chromium'
+import type { Browser, Request } from 'playwright-core'
 import { getDomain } from 'tldts'
 
 export type Cat = 'analytics' | 'ads' | 'cdn' | 'social' | 'tagManager' | 'unknown'
@@ -112,10 +113,7 @@ async function runScan(inputUrl: string, send?: SendEvent): Promise<ScanResult> 
   let liveThirdPartyCount = 0
 
   send?.({ type: 'status', message: 'Opening page...' })
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage']
-  })
+  const browser = await launchBrowser()
 
   try {
     const context = await browser.newContext({
@@ -214,6 +212,24 @@ function readReq(req: Request): ReqInfo | null {
     resourceType: mapResource(req.resourceType()),
     thirdParty: false
   }
+}
+
+async function launchBrowser(): Promise<Browser> {
+  if (process.env.VERCEL) {
+    const { chromium } = await import('playwright-core')
+
+    return chromium.launch({
+      args: serverlessChromium.args,
+      executablePath: await serverlessChromium.executablePath(),
+      headless: true
+    })
+  }
+
+  const { chromium } = await import('playwright')
+  return chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage']
+  })
 }
 
 export function makeErr(message: string, status = 400, code = 'bad_request'): AppErr {

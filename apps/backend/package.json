@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^148.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "playwright": "^1.49.1",
+    "playwright-core": "^1.60.0",
     "tldts": "^6.1.70"
   },
   "devDependencies": {

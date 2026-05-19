@@ -74,7 +74,7 @@ type ScanEvent =
   | { type: 'result'; result: ScanResult }
   | { type: 'error'; error: string; code?: string }
 
-const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
+const apiBase = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:4000' : '')
 const emptyLiveStats = { totalRequests: 0, thirdPartyRequestCount: 0, uniqueThirdPartyDomains: 0 }
 
 export default function TraceShadowApp() {

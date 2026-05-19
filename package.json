@@ -16,6 +16,7 @@
     "install:browsers": "npx playwright install chromium"
   },
   "devDependencies": {
+    "@vercel/node": "^5.8.2",
     "concurrently": "^9.1.2",
     "typescript": "^5.7.3"
   }

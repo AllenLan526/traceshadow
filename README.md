@@ -148,28 +148,20 @@ curl http://localhost:4000/api/demo
 
 ## Deployment
 
-Simple deployment path:
-
-- Deploy `apps/frontend` to Vercel.
-- Set `VITE_API_BASE` to the deployed backend URL.
-- Deploy `apps/backend` to Render, Railway, or Fly.io.
-- Use `npm install && npx playwright install chromium && npm run build` as the backend build command when the host does not install Playwright browsers automatically.
-- Use `npm run start` as the backend start command.
-
-For Vercel frontend:
+Current public deployment:
 
 ```text
-Root directory: apps/frontend
-Build command: npm run build
-Output directory: dist
+https://traceshadow-lime.vercel.app
 ```
 
-For Render backend:
+TraceShadow is configured as a single Vercel deployment. The Vite frontend is served from `apps/frontend/dist`, and the public `/api/*` routes are Vercel Functions that reuse the backend scan logic.
+
+Vercel settings are stored in `vercel.json`:
 
 ```text
-Root directory: apps/backend
-Build command: npm install && npx playwright install chromium && npm run build
-Start command: npm run start
+Install command: npm install
+Build command: npm run build
+Output directory: apps/frontend/dist
 ```
 
 ## Demo Video Workflow
@@ -187,7 +179,7 @@ Use this for a 1 to 3 minute demo:
 
 Demo video link: `TODO add final 1-3 minute video link`
 
-Public demo URL: `TODO add deployed URL`
+Public demo URL: `https://traceshadow-lime.vercel.app`
 
 ## Known Limitations
 
