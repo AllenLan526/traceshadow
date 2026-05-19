@@ -16,6 +16,9 @@
     "install:backend": "python3 -m pip install -r apps/backend/requirements.txt",
     "install:browsers": "python3 -m playwright install chromium"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.60.4"
+  },
   "devDependencies": {
     "concurrently": "^9.1.2"
   }
