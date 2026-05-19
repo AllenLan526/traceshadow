@@ -6,11 +6,14 @@ TraceShadow is a browser-based privacy visibility tool for BasisHacks 2026. A us
 
 Most websites look simple on the surface, but underneath they load scripts, trackers, analytics tools, ad networks, CDNs, and social widgets. TraceShadow makes these invisible systems visible, turning hidden network activity into an understandable map.
 
+The project connects to **"Beneath the Surface"** by turning something invisible into something readable. A normal website feels like one page, but the browser quietly reaches out to many outside systems. TraceShadow shows that hidden layer as evidence: domains, request counts, categories, and a graph that makes the buried structure visible.
+
 ## Features
 
-- URL analyzer backed by Playwright network request collection
 - Live scan updates that show hidden domains as soon as they are found
-- Local rule-based classifier for analytics, ads, CDN, social, tag manager, and unknown domains
+- Python FastAPI backend that uses Playwright to collect browser network requests
+- JavaScript React frontend with a clear analyzer flow
+- Rule-based classifier for analytics, ads, CDN, social, tag manager, and unknown domains
 - Privacy exposure score from 0 to 100 with a transparent formula
 - Interactive network graph powered by Cytoscape.js
 - Summary cards, domain table, and click-to-inspect domain details
@@ -19,9 +22,9 @@ Most websites look simple on the surface, but underneath they load scripts, trac
 
 ## Tech Stack
 
-- Frontend: React, TypeScript, Vite, Tailwind CSS
+- Frontend: React, JavaScript, Vite, Tailwind CSS
 - Graph: Cytoscape.js
-- Backend: Node.js, Express, TypeScript
+- Backend: Python, FastAPI, Uvicorn
 - Browser analysis: Playwright
 
 ## Project Structure
@@ -30,26 +33,41 @@ Most websites look simple on the surface, but underneath they load scripts, trac
 traceshadow/
   README.md
   package.json
+  vercel.json
   apps/
     backend/
-      src/
-        server.ts       API routes
-        analyze.ts      URL validation, Playwright scan, classification, score, demo data
+      requirements.txt
+      app/
+        __init__.py
+        main.py          Python API, scanning, classification, score, demo data
     frontend/
+      index.html
+      vite.config.js
       src/
-        main.tsx
-        TraceShadowApp.tsx   full frontend app, API client, live scan UI, graph, demo data
+        main.jsx
+        TraceShadowApp.jsx
         index.css
 ```
 
-The source is intentionally compressed so the main hackathon logic is easy to review quickly. `server.ts` shows the API surface, `analyze.ts` shows the backend scan pipeline, and `TraceShadowApp.tsx` shows the full user experience.
+The source is intentionally compressed so the main hackathon logic is easy to review. `main.py` contains the backend scan pipeline, and `TraceShadowApp.jsx` contains the full user experience. This makes the project easier to explain because the evidence moves in one clear direction: URL input, browser scan, hidden domains, score, graph, and explanation.
 
 ## Local Setup
 
-Install dependencies from the project root:
+Install the frontend dependencies:
 
 ```bash
 npm install
+```
+
+Install the Python backend dependencies:
+
+```bash
+npm run install:backend
+```
+
+Install the Playwright Chromium browser for Python:
+
+```bash
 npm run install:browsers
 ```
 
@@ -105,7 +123,6 @@ kill <PID>
 Backend optional variables:
 
 ```text
-PORT=4000
 CORS_ORIGIN=http://localhost:5173
 SCAN_TIMEOUT_MS=15000
 ```
@@ -115,6 +132,8 @@ Frontend optional variables:
 ```text
 VITE_API_BASE=http://localhost:4000
 ```
+
+For production, set `VITE_API_BASE` to the public URL of the Python backend. If the frontend is deployed without a backend URL, the built-in demo scan still works, but live scanning needs the API.
 
 ## API
 
@@ -137,7 +156,7 @@ Stream a URL scan as newline-delimited JSON:
 ```bash
 curl -N -X POST http://localhost:4000/api/analyze-stream \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://youtube.com"}'
+  -d '{"url":"https://example.com"}'
 ```
 
 Demo data:
@@ -148,20 +167,31 @@ curl http://localhost:4000/api/demo
 
 ## Deployment
 
-Current public deployment:
-
-```text
-https://traceshadow-lime.vercel.app
-```
-
-TraceShadow is configured as a single Vercel deployment. The Vite frontend is served from `apps/frontend/dist`, and the public `/api/*` routes are Vercel Functions that reuse the backend scan logic.
-
-Vercel settings are stored in `vercel.json`:
+Frontend on Vercel:
 
 ```text
 Install command: npm install
 Build command: npm run build
 Output directory: apps/frontend/dist
+```
+
+Backend on Render, Railway, or Fly.io:
+
+```text
+Build command: pip install -r apps/backend/requirements.txt && python -m playwright install chromium
+Start command: uvicorn apps.backend.app.main:app --host 0.0.0.0 --port $PORT
+```
+
+After the backend is deployed, add this environment variable to the Vercel frontend:
+
+```text
+VITE_API_BASE=https://your-python-backend-url
+```
+
+Current public frontend deployment:
+
+```text
+https://traceshadow-lime.vercel.app
 ```
 
 ## Demo Video Workflow
@@ -188,6 +218,7 @@ Public demo URL: `https://traceshadow-lime.vercel.app`
 - The classifier is rule-based and intentionally simple.
 - The app does not bypass anti-bot protections.
 - User-submitted URLs are scanned in memory and are not stored permanently.
+- The frontend can be hosted on Vercel, but the live scanner should run on a Python backend host that supports Playwright.
 
 ## Future Improvements
 

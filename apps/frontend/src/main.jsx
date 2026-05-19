@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import TraceShadowApp from './TraceShadowApp'
+import TraceShadowApp from './TraceShadowApp.jsx'
 import './index.css'
 
 const root = document.getElementById('root')
@@ -13,7 +13,7 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
     .catch(() => {})
 }
 
-function showBootError(message: string) {
+function showBootError(message) {
   document.body.innerHTML = `
     <main style="min-height:100vh;padding:32px;background:#071016;color:#d8f7f8;font-family:system-ui,sans-serif">
       <h1 style="margin:0 0 12px;font-size:32px">TraceShadow could not start</h1>
@@ -26,7 +26,7 @@ function showBootError(message: string) {
   if (messageEl) messageEl.textContent = message
 }
 
-function BootErrorScreen({ message }: { message: string }) {
+function BootErrorScreen({ message }) {
   return (
     <main style={{ minHeight: '100vh', padding: 32, background: '#071016', color: '#d8f7f8', fontFamily: 'system-ui, sans-serif' }}>
       <h1 style={{ margin: '0 0 12px', fontSize: 32 }}>TraceShadow could not start</h1>
@@ -38,14 +38,14 @@ function BootErrorScreen({ message }: { message: string }) {
   )
 }
 
-class BootBoundary extends React.Component<{ children: React.ReactNode }, { message: string }> {
+class BootBoundary extends React.Component {
   state = { message: '' }
 
-  static getDerivedStateFromError(err: unknown) {
+  static getDerivedStateFromError(err) {
     return { message: err instanceof Error ? err.message : 'Unknown render error.' }
   }
 
-  componentDidCatch(err: unknown) {
+  componentDidCatch(err) {
     console.error(err)
   }
 

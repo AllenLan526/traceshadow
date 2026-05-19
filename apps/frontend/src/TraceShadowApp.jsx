@@ -14,78 +14,20 @@ import {
   Search,
   ShieldCheck
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-
-type Cat = 'analytics' | 'ads' | 'cdn' | 'social' | 'tagManager' | 'unknown'
-type ResType = 'script' | 'image' | 'stylesheet' | 'document' | 'xhr' | 'fetch' | 'font' | 'media' | 'other'
-type CatCounts = Record<Cat, number>
-
-interface DomainInfo {
-  domain: string
-  category: Cat
-  requestCount: number
-  resourceTypes: ResType[]
-  sampleUrls: string[]
-  explanation: string
-}
-
-interface ScanResult {
-  inputUrl: string
-  finalUrl: string
-  firstPartyDomain: string
-  scanTimeMs: number
-  totalRequests: number
-  thirdPartyRequestCount: number
-  uniqueThirdPartyDomains: number
-  categories: CatCounts
-  score: {
-    value: number
-    label: string
-    explanation: string
-  }
-  domains: DomainInfo[]
-  graph: {
-    nodes: {
-      id: string
-      label: string
-      type: 'firstParty' | 'thirdParty'
-      category?: Cat
-    }[]
-    edges: {
-      id: string
-      source: string
-      target: string
-      requestCount: number
-    }[]
-  }
-  warnings: string[]
-}
-
-type ScanEvent =
-  | { type: 'status'; message: string }
-  | {
-      type: 'domain'
-      domain: DomainInfo
-      totalRequests: number
-      thirdPartyRequestCount: number
-      uniqueThirdPartyDomains: number
-    }
-  | { type: 'warning'; message: string }
-  | { type: 'result'; result: ScanResult }
-  | { type: 'error'; error: string; code?: string }
+import { useEffect, useRef, useState } from 'react'
 
 const apiBase = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:4000' : '')
 const emptyLiveStats = { totalRequests: 0, thirdPartyRequestCount: 0, uniqueThirdPartyDomains: 0 }
 
 export default function TraceShadowApp() {
   const [url, setUrl] = useState('https://example.com')
-  const [result, setResult] = useState<ScanResult | null>(null)
-  const [selected, setSelected] = useState<DomainInfo | undefined>()
+  const [result, setResult] = useState(null)
+  const [selected, setSelected] = useState()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [liveStatus, setLiveStatus] = useState('')
-  const [liveDomains, setLiveDomains] = useState<DomainInfo[]>([])
-  const [liveWarnings, setLiveWarnings] = useState<string[]>([])
+  const [liveDomains, setLiveDomains] = useState([])
+  const [liveWarnings, setLiveWarnings] = useState([])
   const [liveStats, setLiveStats] = useState(emptyLiveStats)
 
   async function runScan() {
@@ -127,7 +69,7 @@ export default function TraceShadowApp() {
     setBusy(false)
   }
 
-  function handleScanEvent(event: ScanEvent) {
+  function handleScanEvent(event) {
     if (event.type === 'status') {
       setLiveStatus(event.message)
       return
@@ -258,7 +200,7 @@ export default function TraceShadowApp() {
   )
 }
 
-async function analyzeUrl(url: string, onEvent: (event: ScanEvent) => void): Promise<ScanResult> {
+async function analyzeUrl(url, onEvent) {
   const res = await fetch(`${apiBase}/api/analyze-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -270,7 +212,7 @@ async function analyzeUrl(url: string, onEvent: (event: ScanEvent) => void): Pro
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  let finalResult: ScanResult | null = null
+  let finalResult = null
 
   while (true) {
     const { value, done } = await reader.read()
@@ -307,7 +249,7 @@ async function analyzeUrl(url: string, onEvent: (event: ScanEvent) => void): Pro
   return finalResult
 }
 
-async function analyzeUrlOnce(url: string): Promise<ScanResult> {
+async function analyzeUrlOnce(url) {
   const res = await fetch(`${apiBase}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -322,18 +264,18 @@ async function analyzeUrlOnce(url: string): Promise<ScanResult> {
   return data
 }
 
-function parseScanEvent(line: string): ScanEvent | null {
+function parseScanEvent(line) {
   const trimmed = line.trim()
   if (!trimmed) return null
 
   try {
-    return JSON.parse(trimmed) as ScanEvent
+    return JSON.parse(trimmed)
   } catch {
     return null
   }
 }
 
-async function loadDemoScan(): Promise<ScanResult> {
+async function loadDemoScan() {
   try {
     const res = await fetch(`${apiBase}/api/demo`)
     if (res.ok) return res.json()
@@ -344,13 +286,7 @@ async function loadDemoScan(): Promise<ScanResult> {
   return localDemo
 }
 
-function UrlForm(props: {
-  url: string
-  busy: boolean
-  onUrl: (url: string) => void
-  onScan: () => void
-  onDemo: () => void
-}) {
+function UrlForm(props) {
   return (
     <form
       className="panel p-3"
@@ -385,7 +321,7 @@ function UrlForm(props: {
   )
 }
 
-function LoadingPanel({ status, foundCount = 0 }: { status?: string; foundCount?: number }) {
+function LoadingPanel({ status, foundCount = 0 }) {
   const steps = ['Opening page...', 'Collecting network requests...', 'Classifying hidden domains...', 'Building graph...']
   const [step, setStep] = useState(0)
 
@@ -419,13 +355,7 @@ function LoadingPanel({ status, foundCount = 0 }: { status?: string; foundCount?
   )
 }
 
-function LiveFindings(props: {
-  domains: DomainInfo[]
-  selected?: DomainInfo
-  stats: typeof emptyLiveStats
-  warnings: string[]
-  onSelect: (domain: DomainInfo) => void
-}) {
+function LiveFindings(props) {
   return (
     <section className="panel overflow-hidden border-sea/30 bg-sea/5">
       <div className="border-b border-line/80 px-5 py-4">
@@ -480,7 +410,7 @@ function LiveFindings(props: {
   )
 }
 
-function LiveStat({ label, value }: { label: string; value: number }) {
+function LiveStat({ label, value }) {
   return (
     <div className="rounded-md border border-line bg-ink/60 px-3 py-2">
       <p className="text-lg font-semibold text-slate-50">{value}</p>
@@ -489,7 +419,7 @@ function LiveStat({ label, value }: { label: string; value: number }) {
   )
 }
 
-function LiveHint({ icon, text }: { icon: ReactNode; text: string }) {
+function LiveHint({ icon, text }) {
   return (
     <div className="rounded-md border border-line bg-ink/50 p-4 text-sm leading-6 text-slate-400">
       <div className="mb-3 grid h-8 w-8 place-items-center rounded-md border border-sea/30 bg-sea/10 text-sea">{icon}</div>
@@ -498,7 +428,7 @@ function LiveHint({ icon, text }: { icon: ReactNode; text: string }) {
   )
 }
 
-function SummaryCards({ result }: { result: ScanResult }) {
+function SummaryCards({ result }) {
   const cards = [
     { label: 'Total requests', value: result.totalRequests, icon: Network },
     { label: 'Third-party requests', value: result.thirdPartyRequestCount, icon: RadioTower },
@@ -524,9 +454,9 @@ function SummaryCards({ result }: { result: ScanResult }) {
   )
 }
 
-function TrackerGraph({ result, selected, onSelect }: { result: ScanResult; selected?: DomainInfo; onSelect: (domain: DomainInfo) => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const cyRef = useRef<cytoscape.Core | null>(null)
+function TrackerGraph({ result, selected, onSelect }) {
+  const ref = useRef(null)
+  const cyRef = useRef(null)
 
   useEffect(() => {
     if (!ref.current) return
@@ -619,7 +549,7 @@ function TrackerGraph({ result, selected, onSelect }: { result: ScanResult; sele
   )
 }
 
-function ExposureScore({ result }: { result: ScanResult }) {
+function ExposureScore({ result }) {
   const score = result.score.value
 
   return (
@@ -647,13 +577,7 @@ function ExposureScore({ result }: { result: ScanResult }) {
   )
 }
 
-function DomainTable(props: {
-  domains: DomainInfo[]
-  selected?: DomainInfo
-  onSelect: (domain: DomainInfo) => void
-  title?: string
-  subtitle?: string
-}) {
+function DomainTable(props) {
   const title = props.title ?? 'Detected domains'
   const subtitle = props.subtitle ?? 'Sorted by request count.'
 
@@ -696,7 +620,7 @@ function DomainTable(props: {
   )
 }
 
-function DomainDetails({ domain }: { domain?: DomainInfo }) {
+function DomainDetails({ domain }) {
   if (!domain) {
     return (
       <section className="panel p-5">
@@ -732,13 +656,13 @@ function DomainDetails({ domain }: { domain?: DomainInfo }) {
   )
 }
 
-function catName(cat: Cat) {
+function catName(cat) {
   if (cat === 'tagManager') return 'Tag Manager'
   if (cat === 'cdn') return 'CDN'
   return cat[0].toUpperCase() + cat.slice(1)
 }
 
-const catPill: Record<Cat, string> = {
+const catPill = {
   analytics: 'border-sky-300/40 bg-sky-300/10 text-sky-200',
   ads: 'border-amber-300/40 bg-amber-300/10 text-amber-200',
   cdn: 'border-emerald-300/40 bg-emerald-300/10 text-emerald-200',
@@ -747,7 +671,7 @@ const catPill: Record<Cat, string> = {
   unknown: 'border-slate-300/30 bg-slate-300/10 text-slate-200'
 }
 
-const graphColors: Record<Cat | 'firstParty', string> = {
+const graphColors = {
   firstParty: '#26d6c5',
   analytics: '#8ee8ff',
   ads: '#ffb86b',
@@ -757,7 +681,7 @@ const graphColors: Record<Cat | 'firstParty', string> = {
   unknown: '#94a3b8'
 }
 
-const localDemo: ScanResult = {
+const localDemo = {
   inputUrl: 'https://news-example.test',
   finalUrl: 'https://news-example.test/',
   firstPartyDomain: 'news-example.test',

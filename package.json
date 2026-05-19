@@ -4,20 +4,19 @@
   "version": "0.1.0",
   "license": "MIT",
   "workspaces": [
-    "apps/frontend",
-    "apps/backend"
+    "apps/frontend"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "npm --workspace apps/backend run dev",
+    "dev:backend": "python3 -m uvicorn apps.backend.app.main:app --reload --host 0.0.0.0 --port 4000",
     "dev:frontend": "npm --workspace apps/frontend run dev -- --host localhost --port 5173 --strictPort",
-    "build": "npm run build -w apps/backend && npm run build -w apps/frontend",
-    "typecheck": "npm run typecheck -w apps/backend && npm run typecheck -w apps/frontend",
-    "install:browsers": "npx playwright install chromium"
+    "build": "npm run build -w apps/frontend",
+    "check": "npm run check:backend && npm run build -w apps/frontend",
+    "check:backend": "python3 -m py_compile apps/backend/app/main.py",
+    "install:backend": "python3 -m pip install -r apps/backend/requirements.txt",
+    "install:browsers": "python3 -m playwright install chromium"
   },
   "devDependencies": {
-    "@vercel/node": "^5.8.2",
-    "concurrently": "^9.1.2",
-    "typescript": "^5.7.3"
+    "concurrently": "^9.1.2"
   }
 }

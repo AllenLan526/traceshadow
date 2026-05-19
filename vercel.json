@@ -1,13 +1,5 @@
 {
   "installCommand": "npm install",
   "buildCommand": "npm run build",
-  "outputDirectory": "apps/frontend/dist",
-  "functions": {
-    "api/analyze.ts": {
-      "maxDuration": 60
-    },
-    "api/analyze-stream.ts": {
-      "maxDuration": 60
-    }
-  }
+  "outputDirectory": "apps/frontend/dist"
 }
