@@ -15,73 +15,79 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
-const emptyLiveStats = { totalRequests: 0, thirdPartyRequestCount: 0, uniqueThirdPartyDomains: 0 }
+const api = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
+const Z = { totalRequests: 0, thirdPartyRequestCount: 0, uniqueThirdPartyDomains: 0 }
 
-export default function TraceShadowApp() {
+export default function App() {
   const [url, setUrl] = useState('https://example.com')
-  const [result, setResult] = useState(null)
-  const [selected, setSelected] = useState()
+  const [res, setRes] = useState(null)
+  const [sel, setSel] = useState()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [liveStatus, setLiveStatus] = useState('')
-  const [liveDomains, setLiveDomains] = useState([])
-  const [liveWarnings, setLiveWarnings] = useState([])
-  const [liveStats, setLiveStats] = useState(emptyLiveStats)
+  const [msg, setMsg] = useState('')
+  const [doms, setDoms] = useState([])
+  const [warns, setWarns] = useState([])
+  const [stats, setStats] = useState(Z)
 
-  async function runScan() {
+  async function run() {
     setBusy(true)
     setError('')
-    setResult(null)
-    setSelected(undefined)
-    setLiveStatus('Starting scan...')
-    setLiveDomains([])
-    setLiveWarnings([])
-    setLiveStats(emptyLiveStats)
+    setRes(null)
+    setSel(undefined)
+    setMsg('Starting scan...')
+    setDoms([])
+    setWarns([])
+    setStats(Z)
 
     try {
-      const next = await analyzeUrl(url, handleScanEvent)
-      setResult(next)
-      setSelected((current) => {
+      const next = await scan(url, onEvt)
+      setRes(next)
+      setSel((cur) => {
         if (!next.domains.length) return undefined
-        return next.domains.find((item) => item.domain === current?.domain) ?? next.domains[0]
+        for (const dom of next.domains) {
+          if (dom.domain === cur?.domain) return dom
+        }
+        return next.domains[0]
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The scan failed.')
     } finally {
       setBusy(false)
-      setLiveStatus('')
+      setMsg('')
     }
   }
 
-  function handleScanEvent(event) {
-    if (event.type === 'status') {
-      setLiveStatus(event.message)
+  function onEvt(evt) {
+    if (evt.type === 'status') {
+      setMsg(evt.message)
       return
     }
 
-    if (event.type === 'warning') {
-      setLiveWarnings((current) => current.includes(event.message) ? current : [...current, event.message])
+    if (evt.type === 'warning') {
+      setWarns((cur) => cur.includes(evt.message) ? cur : [...cur, evt.message])
       return
     }
 
-    if (event.type === 'domain') {
-      setLiveStats({
-        totalRequests: event.totalRequests,
-        thirdPartyRequestCount: event.thirdPartyRequestCount,
-        uniqueThirdPartyDomains: event.uniqueThirdPartyDomains
+    if (evt.type === 'domain') {
+      setStats({
+        totalRequests: evt.totalRequests,
+        thirdPartyRequestCount: evt.thirdPartyRequestCount,
+        uniqueThirdPartyDomains: evt.uniqueThirdPartyDomains
       })
 
-      setLiveDomains((current) => {
-        const map = new Map(current.map((item) => [item.domain, item]))
-        map.set(event.domain.domain, event.domain)
-        return [...map.values()].sort((a, b) => b.requestCount - a.requestCount)
+      setDoms((cur) => {
+        const mp = new Map()
+        for (const dom of cur) mp.set(dom.domain, dom)
+        mp.set(evt.domain.domain, evt.domain)
+        const out = [...mp.values()]
+        out.sort((a, b) => b.requestCount - a.requestCount)
+        return out
       })
 
-      setSelected((current) => {
-        if (!current) return event.domain
-        if (current.domain === event.domain.domain) return event.domain
-        return current
+      setSel((cur) => {
+        if (!cur) return evt.domain
+        if (cur.domain === evt.domain.domain) return evt.domain
+        return cur
       })
     }
   }
@@ -109,18 +115,18 @@ export default function TraceShadowApp() {
           </div>
         </header>
 
-        <UrlForm url={url} busy={busy} onUrl={setUrl} onScan={runScan} />
+        <Form url={url} busy={busy} onUrl={setUrl} onScan={run} />
 
         <div className="mt-5 space-y-5">
-          {busy && <LoadingPanel status={liveStatus} foundCount={liveDomains.length} />}
+          {busy && <Load status={msg} n={doms.length} />}
 
-          {(busy || (!result && liveDomains.length > 0)) && (
-            <LiveFindings
-              domains={liveDomains}
-              selected={selected}
-              stats={liveStats}
-              warnings={liveWarnings}
-              onSelect={setSelected}
+          {(busy || (!res && doms.length > 0)) && (
+            <Live
+              domains={doms}
+              selected={sel}
+              stats={stats}
+              warnings={warns}
+              onSelect={setSel}
             />
           )}
 
@@ -136,7 +142,7 @@ export default function TraceShadowApp() {
             </section>
           )}
 
-          {!result && !busy && !error && (
+          {!res && !busy && !error && (
             <section className="panel p-6">
               <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
                 <div>
@@ -146,35 +152,36 @@ export default function TraceShadowApp() {
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  {['Analytics', 'Ads', 'CDNs', 'Social widgets'].map((item) => (
-                    <div className="rounded-md border border-line bg-ink/50 px-4 py-3 text-slate-300" key={item}>{item}</div>
-                  ))}
+                  <Tag s="Analytics" />
+                  <Tag s="Ads" />
+                  <Tag s="CDNs" />
+                  <Tag s="Social widgets" />
                 </div>
               </div>
             </section>
           )}
 
-          {result && (
+          {res && (
             <>
-              <SummaryCards result={result} />
+              <Top result={res} />
 
               <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-                <TrackerGraph result={result} selected={selected} onSelect={setSelected} />
-                <ExposureScore result={result} />
+                <Graph result={res} selected={sel} onSelect={setSel} />
+                <Score result={res} />
               </div>
 
-              {result.warnings.length > 0 && (
+              {res.warnings.length > 0 && (
                 <section className="panel p-4">
                   <h2 className="text-sm font-semibold text-slate-100">Warnings</h2>
                   <ul className="mt-2 space-y-1 text-sm text-slate-400">
-                    {result.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                    {res.warnings.map((warning) => <li key={warning}>{warning}</li>)}
                   </ul>
                 </section>
               )}
 
               <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
-                <DomainTable domains={result.domains} selected={selected} onSelect={setSelected} />
-                <DomainDetails domain={selected} />
+                <Table domains={res.domains} selected={sel} onSelect={setSel} />
+                <Info domain={sel} />
               </div>
             </>
           )}
@@ -184,8 +191,8 @@ export default function TraceShadowApp() {
   )
 }
 
-async function analyzeUrl(url, onEvent) {
-  const res = await fetch(`${apiBase}/api/analyze-stream`, {
+async function scan(url, onEvt) {
+  const res = await fetch(`${api}/api/analyze-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
@@ -193,67 +200,71 @@ async function analyzeUrl(url, onEvent) {
 
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || 'TraceShadow could not scan that page.')
+    throw new Error(data.error || bad())
   }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
-  let buffer = ''
-  let finalResult = null
+  let buf = ''
+  let out = null
 
   while (true) {
     const { value, done } = await reader.read()
     if (done) break
 
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
 
     for (const line of lines) {
-      const event = parseScanEvent(line)
-      if (!event) continue
+      const evt = parse(line)
+      if (!evt) continue
 
-      if (event.type === 'error') {
-        throw new Error(event.error || 'TraceShadow could not scan that page.')
+      if (evt.type === 'error') {
+        throw new Error(evt.error || bad())
       }
 
-      if (event.type === 'result') finalResult = event.result
-      onEvent(event)
+      if (evt.type === 'result') out = evt.result
+      onEvt(evt)
     }
   }
 
-  const last = parseScanEvent(buffer)
+  const last = parse(buf)
   if (last) {
-    if (last.type === 'error') throw new Error(last.error || 'TraceShadow could not scan that page.')
-    if (last.type === 'result') finalResult = last.result
-    onEvent(last)
+    if (last.type === 'error') throw new Error(last.error || bad())
+    if (last.type === 'result') out = last.result
+    onEvt(last)
   }
 
-  if (!finalResult) {
+  if (!out) {
     throw new Error('The scan ended before TraceShadow received a final result.')
   }
 
-  return finalResult
+  return out
 }
 
-function parseScanEvent(line) {
-  const trimmed = line.trim()
-  if (!trimmed) return null
+function parse(line) {
+  const s = line.trim()
+  if (!s) return null
 
   try {
-    return JSON.parse(trimmed)
+    return JSON.parse(s)
   } catch {
     return null
   }
 }
 
-function UrlForm(props) {
+function bad() {
+  return 'TraceShadow could not scan that page.'
+}
+
+function Form({ url, busy, onUrl, onScan }) {
   return (
     <form
       className="panel p-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        props.onScan()
+      onSubmit={(e) => {
+        e.preventDefault()
+        onScan()
       }}
     >
       <div className="flex flex-col gap-3 md:flex-row">
@@ -261,14 +272,14 @@ function UrlForm(props) {
           <span className="sr-only">Website URL</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
           <input
-            value={props.url}
-            onChange={(event) => props.onUrl(event.target.value)}
+            value={url}
+            onChange={(e) => onUrl(e.target.value)}
             placeholder="Enter a website URL, like https://example.com"
             className="h-12 w-full rounded-md border border-line bg-ink/80 pl-10 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-sea"
           />
         </label>
 
-        <button className="btn-main h-12" disabled={props.busy} type="submit">
+        <button className="btn-main h-12" disabled={busy} type="submit">
           <Play className="h-4 w-4" />
           Analyze
         </button>
@@ -277,13 +288,13 @@ function UrlForm(props) {
   )
 }
 
-function LoadingPanel({ status, foundCount = 0 }) {
+function Load({ status, n = 0 }) {
   const steps = ['Opening page...', 'Collecting network requests...', 'Classifying hidden domains...', 'Building graph...']
-  const [step, setStep] = useState(0)
+  const [at, setAt] = useState(0)
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setStep((current) => Math.min(current + 1, steps.length - 1))
+      setAt((x) => Math.min(x + 1, steps.length - 1))
     }, 1200)
 
     return () => window.clearInterval(timer)
@@ -296,22 +307,22 @@ function LoadingPanel({ status, foundCount = 0 }) {
           <span className="h-3 w-3 animate-ping rounded-full bg-sea" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-slate-100">{status || steps[step]}</p>
+          <p className="text-sm font-semibold text-slate-100">{status || steps[at]}</p>
           <p className="mt-1 text-sm text-slate-400">
-            {foundCount > 0
-              ? `TraceShadow has already found ${foundCount} hidden ${foundCount === 1 ? 'domain' : 'domains'} and will keep updating the evidence below.`
+            {n > 0
+              ? `TraceShadow has already found ${n} hidden ${n === 1 ? 'domain' : 'domains'} and will keep updating the evidence below.`
               : 'TraceShadow is watching the page load from beneath the visible surface.'}
           </p>
         </div>
       </div>
       <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/5">
-        <div className="h-full rounded-full bg-sea transition-all duration-500" style={{ width: `${((step + 1) / steps.length) * 100}%` }} />
+        <div className="h-full rounded-full bg-sea transition-all duration-500" style={{ width: `${((at + 1) / steps.length) * 100}%` }} />
       </div>
     </section>
   )
 }
 
-function LiveFindings(props) {
+function Live({ domains, selected, stats, warnings, onSelect }) {
   return (
     <section className="panel overflow-hidden border-sea/30 bg-sea/5">
       <div className="border-b border-line/80 px-5 py-4">
@@ -328,37 +339,37 @@ function LiveFindings(props) {
           </div>
 
           <div className="grid grid-cols-3 gap-2 text-center text-xs">
-            <LiveStat label="Requests" value={props.stats.totalRequests} />
-            <LiveStat label="Third-party" value={props.stats.thirdPartyRequestCount} />
-            <LiveStat label="Domains" value={props.stats.uniqueThirdPartyDomains} />
+            <Num label="Requests" value={stats.totalRequests} />
+            <Num label="Third-party" value={stats.thirdPartyRequestCount} />
+            <Num label="Domains" value={stats.uniqueThirdPartyDomains} />
           </div>
         </div>
       </div>
 
-      {props.domains.length === 0 ? (
+      {domains.length === 0 ? (
         <div className="grid gap-4 p-5 md:grid-cols-3">
-          <LiveHint icon={<Eye className="h-4 w-4" />} text="The browser is opening the page and waiting for the first outside request." />
-          <LiveHint icon={<Network className="h-4 w-4" />} text="When a hidden domain appears, it will be classified and added here immediately." />
-          <LiveHint icon={<Activity className="h-4 w-4" />} text="The final graph will use the same evidence, but with complete totals." />
+          <Tip icon={<Eye className="h-4 w-4" />} text="The browser is opening the page and waiting for the first outside request." />
+          <Tip icon={<Network className="h-4 w-4" />} text="When a hidden domain appears, it will be classified and added here immediately." />
+          <Tip icon={<Activity className="h-4 w-4" />} text="The final graph will use the same evidence, but with complete totals." />
         </div>
       ) : (
         <div className="grid gap-5 p-5 lg:grid-cols-[1fr_380px]">
-          <DomainTable
-            domains={props.domains}
-            selected={props.selected}
-            onSelect={props.onSelect}
+          <Table
+            domains={domains}
+            selected={selected}
+            onSelect={onSelect}
             title="Live detected domains"
             subtitle="Updating as requests arrive."
           />
-          <DomainDetails domain={props.selected} />
+          <Info domain={selected} />
         </div>
       )}
 
-      {props.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <div className="border-t border-line/80 px-5 py-4">
           <h3 className="text-sm font-semibold text-amber-100">Live warnings</h3>
           <ul className="mt-2 space-y-1 text-sm text-amber-100/80">
-            {props.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+            {warnings.map((warning) => <li key={warning}>{warning}</li>)}
           </ul>
         </div>
       )}
@@ -366,7 +377,7 @@ function LiveFindings(props) {
   )
 }
 
-function LiveStat({ label, value }) {
+function Num({ label, value }) {
   return (
     <div className="rounded-md border border-line bg-ink/60 px-3 py-2">
       <p className="text-lg font-semibold text-slate-50">{value}</p>
@@ -375,7 +386,7 @@ function LiveStat({ label, value }) {
   )
 }
 
-function LiveHint({ icon, text }) {
+function Tip({ icon, text }) {
   return (
     <div className="rounded-md border border-line bg-ink/50 p-4 text-sm leading-6 text-slate-400">
       <div className="mb-3 grid h-8 w-8 place-items-center rounded-md border border-sea/30 bg-sea/10 text-sea">{icon}</div>
@@ -384,13 +395,12 @@ function LiveHint({ icon, text }) {
   )
 }
 
-function SummaryCards({ result }) {
-  const cards = [
-    { label: 'Total requests', value: result.totalRequests, icon: Network },
-    { label: 'Third-party requests', value: result.thirdPartyRequestCount, icon: RadioTower },
-    { label: 'Hidden domains', value: result.uniqueThirdPartyDomains, icon: Globe2 },
-    { label: 'Scan time', value: `${result.scanTimeMs}ms`, icon: Clock }
-  ]
+function Top({ result: res }) {
+  const cards = []
+  cards.push({ label: 'Total requests', value: res.totalRequests, icon: Network })
+  cards.push({ label: 'Third-party requests', value: res.thirdPartyRequestCount, icon: RadioTower })
+  cards.push({ label: 'Hidden domains', value: res.uniqueThirdPartyDomains, icon: Globe2 })
+  cards.push({ label: 'Scan time', value: `${res.scanTimeMs}ms`, icon: Clock })
 
   return (
     <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -410,22 +420,25 @@ function SummaryCards({ result }) {
   )
 }
 
-function TrackerGraph({ result, selected, onSelect }) {
+function Graph({ result: res, selected: sel, onSelect }) {
   const ref = useRef(null)
   const cyRef = useRef(null)
 
   useEffect(() => {
     if (!ref.current) return
 
-    const elements = [
-      ...result.graph.nodes.map((node) => ({
+    const elements = []
+    for (const node of res.graph.nodes) {
+      elements.push({
         classes: node.type === 'firstParty' ? 'firstParty' : node.category,
         data: { id: node.id, label: node.label }
-      })),
-      ...result.graph.edges.map((edge) => ({
+      })
+    }
+    for (const edge of res.graph.edges) {
+      elements.push({
         data: { id: edge.id, source: edge.source, target: edge.target, label: String(edge.requestCount) }
-      }))
-    ]
+      })
+    }
 
     const cy = cytoscape({
       container: ref.current,
@@ -434,7 +447,7 @@ function TrackerGraph({ result, selected, onSelect }) {
         {
           selector: 'node',
           style: {
-            'background-color': graphColors.unknown,
+            'background-color': gc.unknown,
             'border-color': '#d8f7f8',
             'border-opacity': 0.18,
             'border-width': 1,
@@ -447,13 +460,13 @@ function TrackerGraph({ result, selected, onSelect }) {
             width: 34
           }
         },
-        { selector: '.firstParty', style: { 'background-color': graphColors.firstParty, height: 58, width: 58 } },
-        { selector: '.analytics', style: { 'background-color': graphColors.analytics } },
-        { selector: '.ads', style: { 'background-color': graphColors.ads } },
-        { selector: '.cdn', style: { 'background-color': graphColors.cdn } },
-        { selector: '.social', style: { 'background-color': graphColors.social } },
-        { selector: '.tagManager', style: { 'background-color': graphColors.tagManager } },
-        { selector: '.unknown', style: { 'background-color': graphColors.unknown } },
+        { selector: '.firstParty', style: { 'background-color': gc.firstParty, height: 58, width: 58 } },
+        { selector: '.analytics', style: { 'background-color': gc.analytics } },
+        { selector: '.ads', style: { 'background-color': gc.ads } },
+        { selector: '.cdn', style: { 'background-color': gc.cdn } },
+        { selector: '.social', style: { 'background-color': gc.social } },
+        { selector: '.tagManager', style: { 'background-color': gc.tagManager } },
+        { selector: '.unknown', style: { 'background-color': gc.unknown } },
         {
           selector: 'edge',
           style: {
@@ -474,25 +487,29 @@ function TrackerGraph({ result, selected, onSelect }) {
     })
 
     cyRef.current = cy
-    cy.on('tap', 'node', (event) => {
-      const id = event.target.id()
-      const domain = result.domains.find((item) => item.domain === id)
-      if (domain) onSelect(domain)
+    cy.on('tap', 'node', (e) => {
+      const id = e.target.id()
+      for (const dom of res.domains) {
+        if (dom.domain === id) {
+          onSelect(dom)
+          break
+        }
+      }
     })
 
     return () => {
       cyRef.current = null
       cy.destroy()
     }
-  }, [result, onSelect])
+  }, [res, onSelect])
 
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
 
     cy.nodes().unselect()
-    if (selected) cy.getElementById(selected.domain).select()
-  }, [selected])
+    if (sel) cy.getElementById(sel.domain).select()
+  }, [sel])
 
   return (
     <section className="panel overflow-hidden">
@@ -505,15 +522,15 @@ function TrackerGraph({ result, selected, onSelect }) {
   )
 }
 
-function ExposureScore({ result }) {
-  const score = result.score.value
+function Score({ result: res }) {
+  const score = res.score.value
 
   return (
     <section className="panel p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-slate-50">Privacy exposure score</h2>
-          <p className="mt-1 text-sm text-slate-400">{result.score.label}</p>
+          <p className="mt-1 text-sm text-slate-400">{res.score.label}</p>
         </div>
         <div className="text-right">
           <strong className="text-4xl font-semibold text-sea">{score}</strong>
@@ -525,7 +542,7 @@ function ExposureScore({ result }) {
         <div className="h-full rounded-full bg-gradient-to-r from-sea via-cyanSoft to-amber-300" style={{ width: `${score}%` }} />
       </div>
 
-      <p className="mt-4 text-sm leading-6 text-slate-300">{result.score.explanation}</p>
+      <p className="mt-4 text-sm leading-6 text-slate-300">{res.score.explanation}</p>
       <p className="mt-3 text-xs leading-5 text-slate-500">
         Formula: third-party domains, sensitive categories, total requests, and domain count. This is educational, not a professional audit.
       </p>
@@ -533,9 +550,9 @@ function ExposureScore({ result }) {
   )
 }
 
-function DomainTable(props) {
-  const title = props.title ?? 'Detected domains'
-  const subtitle = props.subtitle ?? 'Sorted by request count.'
+function Table({ domains, selected: sel, onSelect, title, subtitle }) {
+  title ??= 'Detected domains'
+  subtitle ??= 'Sorted by request count.'
 
   return (
     <section className="panel overflow-hidden">
@@ -555,15 +572,15 @@ function DomainTable(props) {
             </tr>
           </thead>
           <tbody>
-            {props.domains.map((domain) => (
+            {domains.map((domain) => (
               <tr
                 key={domain.domain}
-                className={`cursor-pointer border-t border-line/60 transition hover:bg-sea/5 ${props.selected?.domain === domain.domain ? 'bg-sea/10' : ''}`}
-                onClick={() => props.onSelect(domain)}
+                className={`cursor-pointer border-t border-line/60 transition hover:bg-sea/5 ${sel?.domain === domain.domain ? 'bg-sea/10' : ''}`}
+                onClick={() => onSelect(domain)}
               >
                 <td className="px-5 py-3 font-medium text-slate-100">{domain.domain}</td>
                 <td className="px-5 py-3">
-                  <span className={`cat-pill ${catPill[domain.category]}`}>{catName(domain.category)}</span>
+                  <span className={`cat-pill ${cc[domain.category]}`}>{cat(domain.category)}</span>
                 </td>
                 <td className="px-5 py-3 text-slate-300">{domain.requestCount}</td>
                 <td className="px-5 py-3 text-slate-400">{domain.resourceTypes.join(', ')}</td>
@@ -576,8 +593,8 @@ function DomainTable(props) {
   )
 }
 
-function DomainDetails({ domain }) {
-  if (!domain) {
+function Info({ domain: dom }) {
+  if (!dom) {
     return (
       <section className="panel p-5">
         <h2 className="text-base font-semibold text-slate-50">Domain details</h2>
@@ -590,20 +607,20 @@ function DomainDetails({ domain }) {
     <section className="panel p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="break-all text-base font-semibold text-slate-50">{domain.domain}</h2>
-          <p className="mt-1 text-sm text-slate-400">{catName(domain.category)} - {domain.requestCount} requests</p>
+          <h2 className="break-all text-base font-semibold text-slate-50">{dom.domain}</h2>
+          <p className="mt-1 text-sm text-slate-400">{cat(dom.category)} - {dom.requestCount} requests</p>
         </div>
         <ExternalLink className="h-4 w-4 flex-none text-sea" />
       </div>
 
-      <p className="mt-4 text-sm leading-6 text-slate-300">{domain.explanation}</p>
+      <p className="mt-4 text-sm leading-6 text-slate-300">{dom.explanation}</p>
 
       <div className="mt-5">
         <h3 className="text-sm font-semibold text-slate-100">Sample requests</h3>
         <ul className="mt-3 space-y-2">
-          {domain.sampleUrls.map((sampleUrl) => (
-            <li key={sampleUrl} className="break-all rounded-md border border-line bg-ink/60 px-3 py-2 text-xs text-slate-400">
-              {sampleUrl}
+          {dom.sampleUrls.map((s) => (
+            <li key={s} className="break-all rounded-md border border-line bg-ink/60 px-3 py-2 text-xs text-slate-400">
+              {s}
             </li>
           ))}
         </ul>
@@ -612,13 +629,17 @@ function DomainDetails({ domain }) {
   )
 }
 
-function catName(cat) {
-  if (cat === 'tagManager') return 'Tag Manager'
-  if (cat === 'cdn') return 'CDN'
-  return cat[0].toUpperCase() + cat.slice(1)
+function cat(s) {
+  if (s === 'tagManager') return 'Tag Manager'
+  if (s === 'cdn') return 'CDN'
+  return s[0].toUpperCase() + s.slice(1)
 }
 
-const catPill = {
+function Tag({ s }) {
+  return <div className="rounded-md border border-line bg-ink/50 px-4 py-3 text-slate-300">{s}</div>
+}
+
+const cc = {
   analytics: 'border-sky-300/40 bg-sky-300/10 text-sky-200',
   ads: 'border-amber-300/40 bg-amber-300/10 text-amber-200',
   cdn: 'border-emerald-300/40 bg-emerald-300/10 text-emerald-200',
@@ -627,7 +648,7 @@ const catPill = {
   unknown: 'border-slate-300/30 bg-slate-300/10 text-slate-200'
 }
 
-const graphColors = {
+const gc = {
   firstParty: '#26d6c5',
   analytics: '#8ee8ff',
   ads: '#ffb86b',

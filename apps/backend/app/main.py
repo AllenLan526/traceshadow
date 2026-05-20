@@ -15,19 +15,18 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
 Cat = str
-ResType = str
-ScanEvent = dict
-SendEvent = Callable[[ScanEvent], None]
+Evt = dict
+Send = Callable[[Evt], None]
 
 SCAN_TIMEOUT_MS = int(os.getenv("SCAN_TIMEOUT_MS", "15000"))
 SAMPLE_LIMIT = 5
 
 app = FastAPI(title="TraceShadow API")
 
-origins = [item.strip() for item in os.getenv("CORS_ORIGIN", "").split(",") if item.strip()]
+cors = [s.strip() for s in os.getenv("CORS_ORIGIN", "").split(",") if s.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=cors or ["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,7 +49,7 @@ async def analyze(request: Request):
     url = body.get("url") if isinstance(body, dict) else ""
 
     try:
-        return await run_scan(url)
+        return await scan(url)
     except AppError as err:
         return JSONResponse(
             status_code=err.status,
@@ -60,7 +59,7 @@ async def analyze(request: Request):
         return JSONResponse(
             status_code=500,
             content={
-                "error": f"Scan failed: {err}. Some sites block automated browsers or take too long to respond.",
+                "error": bad(err),
                 "code": "scan_failed",
             },
         )
@@ -70,48 +69,48 @@ async def analyze(request: Request):
 async def analyze_stream(request: Request):
     body = await request.json()
     url = body.get("url") if isinstance(body, dict) else ""
-    queue: asyncio.Queue[ScanEvent | None] = asyncio.Queue()
+    q: asyncio.Queue[Evt | None] = asyncio.Queue()
 
-    def send(event: ScanEvent):
-        queue.put_nowait(event)
+    def send(evt: Evt):
+        q.put_nowait(evt)
 
     async def worker():
         try:
-            await run_scan(url, send)
+            await scan(url, send)
         except AppError as err:
             send({"type": "error", "error": str(err), "code": err.code})
         except Exception as err:
             send({
                 "type": "error",
-                "error": f"Scan failed: {err}. Some sites block automated browsers or take too long to respond.",
+                "error": bad(err),
                 "code": "scan_failed",
             })
         finally:
-            await queue.put(None)
+            await q.put(None)
 
     async def stream():
         task = asyncio.create_task(worker())
         try:
             while True:
-                event = await queue.get()
-                if event is None:
+                evt = await q.get()
+                if evt is None:
                     break
-                yield json.dumps(event) + "\n"
+                yield json.dumps(evt) + "\n"
         finally:
             await task
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
-async def run_scan(input_url: str, send: SendEvent | None = None):
-    start = time.time()
+async def scan(input_url: str, send: Send | None = None):
+    st = time.time()
     emit(send, {"type": "status", "message": "Validating URL..."})
-    target_url = normalize_url(input_url)
+    url = norm_url(input_url)
     reqs = []
-    warnings = []
-    live_domains = {}
-    live_third_party_count = 0
-    starting_domain = site_domain(target_url)
+    warns = []
+    doms = {}
+    tp_cnt = 0
+    root_dom = base_dom(url)
 
     emit(send, {"type": "status", "message": "Opening page..."})
 
@@ -125,14 +124,14 @@ async def run_scan(input_url: str, send: SendEvent | None = None):
             )
 
             async def check_route(route):
-                url = route.request.url
-                if not is_http_url(url):
+                req_url = route.request.url
+                if not is_http_url(req_url):
                     await route.abort()
                     return
 
                 try:
-                    host = urlparse(url).hostname or ""
-                    if is_blocked_host(host):
+                    host = urlparse(req_url).hostname or ""
+                    if blocked_host(host):
                         await route.abort()
                         return
                 except Exception:
@@ -148,54 +147,54 @@ async def run_scan(input_url: str, send: SendEvent | None = None):
             emit(send, {"type": "status", "message": "Collecting network requests..."})
 
             def on_request(req: PlaywrightRequest):
-                nonlocal live_third_party_count
-                info = read_req(req)
-                if not info:
+                nonlocal tp_cnt
+                x = get_req(req)
+                if not x:
                     return
 
-                reqs.append(info)
+                reqs.append(x)
 
-                if site_domain(info["url"]) != starting_domain:
-                    live_third_party_count += 1
-                    domain = upsert_domain(live_domains, info)
+                if base_dom(x["url"]) != root_dom:
+                    tp_cnt += 1
+                    dom = add(doms, x)
                     emit(send, {
                         "type": "domain",
-                        "domain": domain,
+                        "domain": dom,
                         "totalRequests": len(reqs),
-                        "thirdPartyRequestCount": live_third_party_count,
-                        "uniqueThirdPartyDomains": len(live_domains),
+                        "thirdPartyRequestCount": tp_cnt,
+                        "uniqueThirdPartyDomains": len(doms),
                     })
 
             page.on("request", on_request)
 
             timed_out = False
-            response = None
+            res = None
             try:
-                response = await page.goto(target_url, wait_until="domcontentloaded", timeout=SCAN_TIMEOUT_MS)
+                res = await page.goto(url, wait_until="domcontentloaded", timeout=SCAN_TIMEOUT_MS)
             except PlaywrightTimeoutError:
                 if not reqs:
                     raise
                 timed_out = True
-                add_warning(warnings, "The page did not finish loading during the scan window, so TraceShadow is showing a partial scan from the requests it captured.", send)
+                warn(warns, "The page did not finish loading during the scan window, so TraceShadow is showing a partial scan from the requests it captured.", send)
 
-            if response is None and not timed_out:
-                add_warning(warnings, "The page opened, but Playwright did not receive a normal document response.", send)
+            if res is None and not timed_out:
+                warn(warns, "The page opened, but Playwright did not receive a normal document response.", send)
 
             try:
                 await page.wait_for_load_state("networkidle", timeout=1000 if timed_out else 3500)
             except Exception:
-                add_warning(warnings, "Some requests were still loading after the scan window closed.", send)
+                warn(warns, "Some requests were still loading after the scan window closed.", send)
 
             emit(send, {"type": "status", "message": "Classifying hidden domains..."})
-            result = build_result(input_url, page.url, reqs, warnings, int((time.time() - start) * 1000))
+            out = make(input_url, page.url, reqs, warns, int((time.time() - st) * 1000))
             emit(send, {"type": "status", "message": "Building graph..."})
-            emit(send, {"type": "result", "result": result})
-            return result
+            emit(send, {"type": "result", "result": out})
+            return out
         finally:
             await browser.close()
 
 
-def read_req(req: PlaywrightRequest):
+def get_req(req: PlaywrightRequest):
     url = req.url
     if not is_http_url(url):
         return None
@@ -207,100 +206,105 @@ def read_req(req: PlaywrightRequest):
     return {
         "url": url,
         "domain": host.lower(),
-        "resourceType": map_resource(req.resource_type),
+        "resourceType": map_res(req.resource_type),
         "thirdParty": False,
     }
 
 
-def build_result(input_url: str, final_url: str, all_reqs: list[dict], warnings: list[str], scan_time_ms: int):
-    first_party_domain = site_domain(final_url)
+def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan_time_ms: int):
+    first_dom = base_dom(final_url)
     reqs = []
 
-    for req in all_reqs:
-        next_req = dict(req)
-        next_req["thirdParty"] = site_domain(req["url"]) != first_party_domain
-        reqs.append(next_req)
+    for req in raw:
+        cur = dict(req)
+        cur["thirdParty"] = base_dom(req["url"]) != first_dom
+        reqs.append(cur)
 
-    third_party = [req for req in reqs if req["thirdParty"]]
-    domains = group_domains(third_party)
-    categories = count_cats(domains)
-    score = calc_score(len(reqs), len(domains), categories)
+    third = []
+    for req in reqs:
+        if req["thirdParty"]:
+            third.append(req)
+    doms = group(third)
+    cats = count(doms)
+    score = score_of(len(reqs), len(doms), cats)
 
-    if not domains:
-        warnings.append("No third-party domains were detected during this scan window.")
+    if not doms:
+        warns.append("No third-party domains were detected during this scan window.")
 
-    nodes = [{"id": first_party_domain, "label": first_party_domain, "type": "firstParty"}]
-    for domain in domains:
+    nodes = [{"id": first_dom, "label": first_dom, "type": "firstParty"}]
+    for dom in doms:
         nodes.append({
-            "id": domain["domain"],
-            "label": short_label(domain["domain"]),
+            "id": dom["domain"],
+            "label": short(dom["domain"]),
             "type": "thirdParty",
-            "category": domain["category"],
+            "category": dom["category"],
         })
 
     edges = []
-    for domain in domains:
+    for dom in doms:
         edges.append({
-            "id": f"{first_party_domain}-{domain['domain']}",
-            "source": first_party_domain,
-            "target": domain["domain"],
-            "requestCount": domain["requestCount"],
+            "id": f"{first_dom}-{dom['domain']}",
+            "source": first_dom,
+            "target": dom["domain"],
+            "requestCount": dom["requestCount"],
         })
 
     return {
         "inputUrl": input_url,
         "finalUrl": final_url,
-        "firstPartyDomain": first_party_domain,
+        "firstPartyDomain": first_dom,
         "scanTimeMs": scan_time_ms,
         "totalRequests": len(reqs),
-        "thirdPartyRequestCount": len(third_party),
-        "uniqueThirdPartyDomains": len(domains),
-        "categories": categories,
+        "thirdPartyRequestCount": len(third),
+        "uniqueThirdPartyDomains": len(doms),
+        "categories": cats,
         "score": score,
-        "domains": domains,
+        "domains": doms,
         "graph": {"nodes": nodes, "edges": edges},
-        "warnings": warnings,
+        "warnings": warns,
     }
 
 
-def upsert_domain(domain_map: dict[str, dict], req: dict):
-    current = domain_map.get(req["domain"])
-    if current:
-        current["requestCount"] += 1
-        if req["resourceType"] not in current["resourceTypes"]:
-            current["resourceTypes"].append(req["resourceType"])
-        if len(current["sampleUrls"]) < SAMPLE_LIMIT and req["url"] not in current["sampleUrls"]:
-            current["sampleUrls"].append(req["url"])
-        return current
+def add(mp: dict[str, dict], req: dict):
+    cur = mp.get(req["domain"])
+    if cur:
+        cur["requestCount"] += 1
+        if req["resourceType"] not in cur["resourceTypes"]:
+            cur["resourceTypes"].append(req["resourceType"])
+        if len(cur["sampleUrls"]) < SAMPLE_LIMIT and req["url"] not in cur["sampleUrls"]:
+            cur["sampleUrls"].append(req["url"])
+        return cur
 
-    category = classify_domain(req["domain"])
-    next_domain = {
+    cat = get_cat(req["domain"])
+    cur = {
         "domain": req["domain"],
-        "category": category,
+        "category": cat,
         "requestCount": 1,
         "resourceTypes": [req["resourceType"]],
         "sampleUrls": [req["url"]],
-        "explanation": explain_cat(category),
+        "explanation": cat_msg(cat),
     }
-    domain_map[req["domain"]] = next_domain
-    return next_domain
+    mp[req["domain"]] = cur
+    return cur
 
 
-def group_domains(reqs: list[dict]):
-    domain_map = {}
+def group(reqs: list[dict]):
+    mp = {}
     for req in reqs:
-        upsert_domain(domain_map, req)
-    return sorted(domain_map.values(), key=lambda item: item["requestCount"], reverse=True)
+        add(mp, req)
+    out = list(mp.values())
+    out.sort(key=lambda x: x["requestCount"], reverse=True)
+    return out
 
 
-def count_cats(domains: list[dict]):
-    counts = {"analytics": 0, "ads": 0, "cdn": 0, "social": 0, "tagManager": 0, "unknown": 0}
-    for domain in domains:
-        counts[domain["category"]] += 1
-    return counts
+def count(doms: list[dict]):
+    cnt = {"analytics": 0, "ads": 0, "cdn": 0, "social": 0, "tagManager": 0, "unknown": 0}
+    for dom in doms:
+        cnt[dom["category"]] += 1
+    return cnt
 
 
-def calc_score(total_requests: int, unique_domains: int, categories: dict):
+def score_of(total_requests: int, unique_domains: int, categories: dict):
     value = 0
     value += min(unique_domains * 5, 40)
     if categories["analytics"] > 0:
@@ -345,7 +349,7 @@ def calc_score(total_requests: int, unique_domains: int, categories: dict):
     return {"value": value, "label": label, "explanation": explanation}
 
 
-RULES = {
+RS = {
     "tagManager": ["googletagmanager.com", "tagmanager"],
     "analytics": ["google-analytics.com", "plausible.io", "segment.com", "amplitude.com", "mixpanel.com", "hotjar.com"],
     "ads": ["doubleclick.net", "googlesyndication.com", "adservice.google.com", "adsystem.com", "taboola.com", "outbrain.com"],
@@ -354,16 +358,16 @@ RULES = {
 }
 
 
-def classify_domain(domain: str):
-    name = domain.lower()
-    for category, rules in RULES.items():
+def get_cat(domain: str):
+    s = domain.lower()
+    for cat, rules in RS.items():
         for rule in rules:
-            if rule in name:
-                return category
+            if rule in s:
+                return cat
     return "unknown"
 
 
-def explain_cat(cat: Cat):
+def cat_msg(cat: Cat):
     if cat == "analytics":
         return "Analytics services measure visits, page views, clicks, and other user behavior."
     if cat == "ads":
@@ -377,7 +381,7 @@ def explain_cat(cat: Cat):
     return "This third-party domain did not match the simple local rules, so TraceShadow marks it as unknown."
 
 
-def short_label(domain: str):
+def short(domain: str):
     known = {
         "www.google-analytics.com": "Google Analytics",
         "google-analytics.com": "Google Analytics",
@@ -388,61 +392,62 @@ def short_label(domain: str):
     return known.get(domain, domain.removeprefix("www."))
 
 
-def normalize_url(input_url: str):
-    raw = input_url.strip()
-    if not raw:
+def norm_url(input_url: str):
+    s = input_url.strip()
+    if not s:
         raise AppError("Enter a URL to scan.")
-    if raw.startswith("file:"):
+    if s.startswith("file:"):
         raise AppError("file:// URLs are not allowed.")
 
-    with_proto = raw if "://" in raw else f"https://{raw}"
-    parsed = urlparse(with_proto)
+    if "://" not in s:
+        s = f"https://{s}"
+    p = urlparse(s)
 
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    if p.scheme not in ("http", "https") or not p.netloc:
         raise AppError("That does not look like a valid URL.")
-    if parsed.username or parsed.password:
+    if p.username or p.password:
         raise AppError("URLs with usernames or passwords are not allowed.")
-    if not parsed.hostname:
+    if not p.hostname:
         raise AppError("That does not look like a valid URL.")
 
-    assert_host_allowed(parsed.hostname)
-    if not is_ip(parsed.hostname):
-        assert_dns_allowed(parsed.hostname)
+    chk_host(p.hostname)
+    if not is_ip(p.hostname):
+        chk_dns(p.hostname)
 
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.params, parsed.query, ""))
+    return urlunparse((p.scheme, p.netloc, p.path or "/", p.params, p.query, ""))
 
 
-def assert_dns_allowed(hostname: str):
+def chk_dns(host: str):
     try:
-        infos = socket.getaddrinfo(hostname, None)
+        infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
         raise AppError("Could not resolve that host.")
 
     for info in infos:
-        address = info[4][0]
-        if is_private_ip(address):
+        ip = info[4][0]
+        if priv_ip(ip):
             raise AppError("This host resolves to a private network address, so it was blocked.")
 
 
-def assert_host_allowed(hostname: str):
-    host = clean_host(hostname)
+def chk_host(hostname: str):
+    host = clean(hostname)
     if host == "localhost" or host.endswith(".localhost"):
         raise AppError("Localhost URLs are blocked for safety.")
-    if is_ip(host) and is_private_ip(host):
+    if is_ip(host) and priv_ip(host):
         raise AppError("Private network addresses are blocked for safety.")
 
 
-def is_blocked_host(hostname: str):
+def blocked_host(hostname: str):
     try:
-        assert_host_allowed(hostname)
+        chk_host(hostname)
         return False
     except AppError:
         return True
 
 
-def is_private_ip(value: str):
+def priv_ip(value: str):
     try:
-        ip = ipaddress.ip_address(clean_host(value))
+        ip = ipaddress.ip_address(clean(value))
     except ValueError:
         return False
     return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
@@ -450,17 +455,17 @@ def is_private_ip(value: str):
 
 def is_ip(value: str):
     try:
-        ipaddress.ip_address(clean_host(value))
+        ipaddress.ip_address(clean(value))
         return True
     except ValueError:
         return False
 
 
-def clean_host(hostname: str):
+def clean(hostname: str):
     return hostname.lower().strip("[]").rstrip(".")
 
 
-def site_domain(url: str):
+def base_dom(url: str):
     try:
         host = urlparse(url).hostname or ""
     except Exception:
@@ -473,7 +478,7 @@ def site_domain(url: str):
     return ".".join(parts[-2:])
 
 
-def map_resource(kind: str):
+def map_res(kind: str):
     if kind in {"script", "image", "stylesheet", "document", "xhr", "fetch", "font", "media"}:
         return kind
     return "other"
@@ -483,14 +488,18 @@ def is_http_url(url: str):
     return url.startswith("http://") or url.startswith("https://")
 
 
-def add_warning(warnings: list[str], message: str, send: SendEvent | None):
-    warnings.append(message)
-    emit(send, {"type": "warning", "message": message})
+def warn(warns: list[str], msg: str, send: Send | None):
+    warns.append(msg)
+    emit(send, {"type": "warning", "message": msg})
 
 
-def emit(send: SendEvent | None, event: ScanEvent):
+def emit(send: Send | None, event: Evt):
     if send:
         send(event)
+
+
+def bad(err: Exception):
+    return f"Scan failed: {err}. Some sites block automated browsers or take too long to respond."
 
 
 class AppError(Exception):
