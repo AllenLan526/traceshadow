@@ -1,4 +1,4 @@
-# TraceShadow
+# TraceShadowww
 
 TraceShadow is a web app for BasisHacks 2026. A user enters a website URL, and the app reveals the hidden third-party domains, scripts, trackers, analytics tools, CDNs, ad systems, and social widgets that load behind the visible page.
 
