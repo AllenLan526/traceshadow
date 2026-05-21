@@ -148,14 +148,14 @@ export default function App() {
                 <div>
                   <h2 className="text-xl font-semibold text-slate-50">What TraceShadow shows</h2>
                   <p className="mt-3 text-sm leading-6 text-slate-400">
-                    Websites often load analytics scripts, ad networks, CDNs, fonts, and social widgets in the background. This tool maps those domains so judges can understand the hidden systems quickly.
+                    Websites often load scripts, fonts, images, APIs, and other outside resources in the background. This tool maps those domains so judges can understand the hidden systems quickly.
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <Tag s="Analytics" />
-                  <Tag s="Ads" />
-                  <Tag s="CDNs" />
-                  <Tag s="Social widgets" />
+                  <Tag s="Scripts" />
+                  <Tag s="Fonts" />
+                  <Tag s="Images" />
+                  <Tag s="APIs" />
                 </div>
               </div>
             </section>
@@ -291,7 +291,7 @@ function Form({ url, busy, onUrl, onScan }) {
 }
 
 function Load({ status, n = 0 }) {
-  const steps = ['Opening page...', 'Collecting network requests...', 'Classifying hidden domains...', 'Building graph...']
+  const steps = ['Opening page...', 'Collecting network requests...', 'Summarizing hidden domains...', 'Building graph...']
   const [at, setAt] = useState(0)
 
   useEffect(() => {
@@ -351,7 +351,7 @@ function Live({ domains, selected, stats, warnings, onSelect }) {
       {domains.length === 0 ? (
         <div className="grid gap-4 p-5 md:grid-cols-3">
           <Tip icon={<Eye className="h-4 w-4" />} text="The browser is opening the page and waiting for the first outside request." />
-          <Tip icon={<Network className="h-4 w-4" />} text="When a hidden domain appears, it will be classified and added here immediately." />
+          <Tip icon={<Network className="h-4 w-4" />} text="When a hidden domain appears, it will be added here immediately." />
           <Tip icon={<Activity className="h-4 w-4" />} text="The final graph will use the same evidence, but with complete totals." />
         </div>
       ) : (
@@ -432,7 +432,7 @@ function Graph({ result: res, selected: sel, onSelect }) {
     const elements = []
     for (const node of res.graph.nodes) {
       elements.push({
-        classes: node.type === 'firstParty' ? 'firstParty' : node.category,
+        classes: node.type === 'firstParty' ? 'firstParty' : 'thirdParty',
         data: { id: node.id, label: node.label }
       })
     }
@@ -457,7 +457,7 @@ function Graph({ result: res, selected: sel, onSelect }) {
         {
           selector: 'node',
           style: {
-            'background-color': gc.unknown,
+            'background-color': gc.thirdParty,
             'border-color': '#d8f7f8',
             'border-opacity': 0.18,
             'border-width': 1,
@@ -471,12 +471,7 @@ function Graph({ result: res, selected: sel, onSelect }) {
           }
         },
         { selector: '.firstParty', style: { 'background-color': gc.firstParty, height: 58, width: 58 } },
-        { selector: '.analytics', style: { 'background-color': gc.analytics } },
-        { selector: '.ads', style: { 'background-color': gc.ads } },
-        { selector: '.cdn', style: { 'background-color': gc.cdn } },
-        { selector: '.social', style: { 'background-color': gc.social } },
-        { selector: '.tagManager', style: { 'background-color': gc.tagManager } },
-        { selector: '.unknown', style: { 'background-color': gc.unknown } },
+        { selector: '.thirdParty', style: { 'background-color': gc.thirdParty } },
         {
           selector: 'edge',
           style: {
@@ -588,7 +583,7 @@ function Score({ result: res }) {
 
       <p className="mt-4 text-sm leading-6 text-slate-300">{res.score.explanation}</p>
       <p className="mt-3 text-xs leading-5 text-slate-500">
-        Formula: third-party domains, sensitive categories, total requests, and domain count. This is educational, not a professional audit.
+        Formula: third-party domains, total requests, and domain count. This is educational, not a professional audit.
       </p>
     </section>
   )
@@ -610,7 +605,6 @@ function Table({ domains, selected: sel, onSelect, title, subtitle }) {
           <thead className="bg-white/[0.03] text-xs uppercase text-slate-500">
             <tr>
               <th className="px-5 py-3 font-semibold">Domain</th>
-              <th className="px-5 py-3 font-semibold">Category</th>
               <th className="px-5 py-3 font-semibold">Requests</th>
               <th className="px-5 py-3 font-semibold">Types</th>
             </tr>
@@ -623,9 +617,6 @@ function Table({ domains, selected: sel, onSelect, title, subtitle }) {
                 onClick={() => onSelect(domain)}
               >
                 <td className="px-5 py-3 font-medium text-slate-100">{domain.domain}</td>
-                <td className="px-5 py-3">
-                  <span className={`cat-pill ${cc[domain.category]}`}>{cat(domain.category)}</span>
-                </td>
                 <td className="px-5 py-3 text-slate-300">{domain.requestCount}</td>
                 <td className="px-5 py-3 text-slate-400">{domain.resourceTypes.join(', ')}</td>
               </tr>
@@ -652,7 +643,7 @@ function Info({ domain: dom }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="break-all text-base font-semibold text-slate-50">{dom.domain}</h2>
-          <p className="mt-1 text-sm text-slate-400">{cat(dom.category)} - {dom.requestCount} requests</p>
+          <p className="mt-1 text-sm text-slate-400">{dom.requestCount} requests</p>
         </div>
         <ExternalLink className="h-4 w-4 flex-none text-sea" />
       </div>
@@ -771,31 +762,11 @@ function DebugList({ title, accent, edges, labelById, empty, borderLeft }) {
   )
 }
 
-function cat(s) {
-  if (s === 'tagManager') return 'Tag Manager'
-  if (s === 'cdn') return 'CDN'
-  return s[0].toUpperCase() + s.slice(1)
-}
-
 function Tag({ s }) {
   return <div className="rounded-md border border-line bg-ink/50 px-4 py-3 text-slate-300">{s}</div>
 }
 
-const cc = {
-  analytics: 'border-sky-300/40 bg-sky-300/10 text-sky-200',
-  ads: 'border-amber-300/40 bg-amber-300/10 text-amber-200',
-  cdn: 'border-emerald-300/40 bg-emerald-300/10 text-emerald-200',
-  social: 'border-pink-300/40 bg-pink-300/10 text-pink-200',
-  tagManager: 'border-violet-300/40 bg-violet-300/10 text-violet-200',
-  unknown: 'border-slate-300/30 bg-slate-300/10 text-slate-200'
-}
-
 const gc = {
   firstParty: '#26d6c5',
-  analytics: '#8ee8ff',
-  ads: '#ffb86b',
-  cdn: '#7ddf8a',
-  social: '#f08bd2',
-  tagManager: '#c6a0ff',
-  unknown: '#94a3b8'
+  thirdParty: '#94a3b8'
 }

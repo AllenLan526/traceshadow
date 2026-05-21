@@ -15,7 +15,6 @@ from playwright.async_api import Request as PlaywrightRequest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-Cat = str
 Evt = dict
 Send = Callable[[Evt], None]
 
@@ -200,7 +199,7 @@ async def scan(input_url: str, send: Send | None = None):
             except Exception:
                 warn(warns, "Some requests were still loading after the scan window closed.", send)
 
-            emit(send, {"type": "status", "message": "Classifying hidden domains..."})
+            emit(send, {"type": "status", "message": "Summarizing hidden domains..."})
             out = make(input_url, page.url, reqs, warns, int((time.time() - st) * 1000))
             emit(send, {"type": "status", "message": "Building graph..."})
             emit(send, {"type": "result", "result": out})
@@ -331,8 +330,7 @@ def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan
         if req["thirdParty"]:
             third.append(req)
     doms = group(third)
-    cats = count(doms)
-    score = score_of(len(reqs), len(doms), cats)
+    score = score_of(len(reqs), len(doms))
 
     if not doms:
         warns.append("No third-party domains were detected during this scan window.")
@@ -372,7 +370,6 @@ def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan
             "id": dom["domain"],
             "label": short(dom["domain"]),
             "type": "thirdParty",
-            "category": dom["category"],
         })
     for extra in sorted(extra_doms):
         if extra in known or extra == first_dom:
@@ -381,7 +378,6 @@ def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan
             "id": extra,
             "label": short(extra),
             "type": "thirdParty",
-            "category": get_cat(extra),
         })
 
     node_ids = {n["id"] for n in nodes}
@@ -398,7 +394,6 @@ def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan
         "totalRequests": len(reqs),
         "thirdPartyRequestCount": len(third),
         "uniqueThirdPartyDomains": len(doms),
-        "categories": cats,
         "score": score,
         "domains": doms,
         "graph": {"nodes": nodes, "edges": edges},
@@ -416,14 +411,12 @@ def add(mp: dict[str, dict], req: dict):
             cur["sampleUrls"].append(req["url"])
         return cur
 
-    cat = get_cat(req["domain"])
     cur = {
         "domain": req["domain"],
-        "category": cat,
         "requestCount": 1,
         "resourceTypes": [req["resourceType"]],
         "sampleUrls": [req["url"]],
-        "explanation": cat_msg(cat),
+        "explanation": dom_msg(req["domain"]),
     }
     mp[req["domain"]] = cur
     return cur
@@ -438,24 +431,9 @@ def group(reqs: list[dict]):
     return out
 
 
-def count(doms: list[dict]):
-    cnt = {"analytics": 0, "ads": 0, "cdn": 0, "social": 0, "tagManager": 0, "unknown": 0}
-    for dom in doms:
-        cnt[dom["category"]] += 1
-    return cnt
-
-
-def score_of(total_requests: int, unique_domains: int, categories: dict):
+def score_of(total_requests: int, unique_domains: int):
     value = 0
     value += min(unique_domains * 5, 40)
-    if categories["analytics"] > 0:
-        value += 8
-    if categories["ads"] > 0:
-        value += 12
-    if categories["social"] > 0:
-        value += 8
-    if categories["tagManager"] > 0:
-        value += 5
     if total_requests > 30:
         value += 10
     if unique_domains > 10:
@@ -471,55 +449,14 @@ def score_of(total_requests: int, unique_domains: int, categories: dict):
     elif value > 25:
         label = "Moderate exposure"
 
-    parts = []
-    if unique_domains > 0:
-        parts.append(f"{unique_domains} third-party domains")
-    if categories["analytics"] > 0:
-        parts.append("analytics tools")
-    if categories["ads"] > 0:
-        parts.append("advertising domains")
-    if categories["social"] > 0:
-        parts.append("social widgets")
-    if categories["tagManager"] > 0:
-        parts.append("tag managers")
-
     explanation = "This page has limited third-party activity in this scan."
-    if parts:
-        explanation = f"This page loads {', '.join(parts)}. This score is an educational approximation, not a professional privacy audit."
+    if unique_domains > 0:
+        explanation = f"This page loads {unique_domains} third-party domains across {total_requests} requests. This score is an educational approximation, not a professional privacy audit."
 
     return {"value": value, "label": label, "explanation": explanation}
 
-
-RS = {
-    "tagManager": ["googletagmanager.com", "tagmanager"],
-    "analytics": ["google-analytics.com", "plausible.io", "segment.com", "amplitude.com", "mixpanel.com", "hotjar.com"],
-    "ads": ["doubleclick.net", "googlesyndication.com", "adservice.google.com", "adsystem.com", "taboola.com", "outbrain.com"],
-    "cdn": ["cloudflare.com", "cloudfront.net", "akamai", "jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com"],
-    "social": ["facebook.net", "facebook.com", "instagram.com", "twitter.com", "x.com", "tiktok.com", "linkedin.com"],
-}
-
-
-def get_cat(domain: str):
-    s = domain.lower()
-    for cat, rules in RS.items():
-        for rule in rules:
-            if rule in s:
-                return cat
-    return "unknown"
-
-
-def cat_msg(cat: Cat):
-    if cat == "analytics":
-        return "Analytics services measure visits, page views, clicks, and other user behavior."
-    if cat == "ads":
-        return "Advertising domains can load ad slots, bidding scripts, targeting pixels, or conversion trackers."
-    if cat == "cdn":
-        return "CDNs serve shared files such as scripts, images, fonts, and styles from external infrastructure."
-    if cat == "social":
-        return "Social widgets can load share buttons, embeds, login tools, or tracking pixels from social platforms."
-    if cat == "tagManager":
-        return "Tag managers can load and control other marketing, analytics, and tracking scripts from one place."
-    return "This third-party domain did not match the simple local rules, so TraceShadow marks it as unknown."
+def dom_msg(domain: str):
+    return f"{short(domain)} is a third-party domain that loaded resources while the page was opening."
 
 
 def short(domain: str):
