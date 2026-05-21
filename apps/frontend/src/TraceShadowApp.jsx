@@ -3,15 +3,13 @@ import {
   Activity,
   AlertTriangle,
   Clock,
-  Code2,
   ExternalLink,
   Eye,
   Globe2,
   Network,
   Play,
   RadioTower,
-  Search,
-  ShieldCheck
+  Search
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -97,11 +95,6 @@ export default function App() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
-            <div className="mb-3 flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-md border border-sea/40 bg-sea/10">
-                <ShieldCheck className="h-5 w-5 text-sea" />
-              </div>
-            </div>
             <h1 className="text-4xl font-semibold text-slate-50 md:text-5xl">TraceShadow</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-slate-400">
               Enter a website and reveal the hidden network resources loading beneath the visible page.
