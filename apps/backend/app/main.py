@@ -189,7 +189,6 @@ async def scan(input_url: str, send: Send | None = None):
                 if not reqs:
                     raise
                 timed_out = True
-                warn(warns, "The page did not finish loading during the scan window, so TraceShadow is showing a partial scan from the requests it captured.", send)
 
             if res is None and not timed_out:
                 warn(warns, "The page opened, but Playwright did not receive a normal document response.", send)
@@ -451,7 +450,7 @@ def score_of(total_requests: int, unique_domains: int):
 
     explanation = "This page has limited third-party activity in this scan."
     if unique_domains > 0:
-        explanation = f"This page loads {unique_domains} third-party domains across {total_requests} requests. This score is an educational approximation, not a professional privacy audit."
+        explanation = f"This page loads {unique_domains} third-party domains across {total_requests} requests."
 
     return {"value": value, "label": label, "explanation": explanation}
 

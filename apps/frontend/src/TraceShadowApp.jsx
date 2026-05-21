@@ -101,17 +101,11 @@ export default function App() {
               <div className="grid h-10 w-10 place-items-center rounded-md border border-sea/40 bg-sea/10">
                 <ShieldCheck className="h-5 w-5 text-sea" />
               </div>
-              <span className="text-sm font-semibold uppercase text-sea">BasisHacks 2026 - Beneath the Surface</span>
             </div>
             <h1 className="text-4xl font-semibold text-slate-50 md:text-5xl">TraceShadow</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-slate-400">
               Enter a website and reveal the hidden network resources loading beneath the visible page.
             </p>
-          </div>
-
-          <div className="btn-ghost w-fit" aria-label="Open-source ready status">
-            <Code2 className="h-4 w-4" />
-            Open-source ready
           </div>
         </header>
 
@@ -169,15 +163,6 @@ export default function App() {
                 <Graph result={res} selected={sel} onSelect={setSel} />
                 <Score result={res} />
               </div>
-
-              {res.warnings.length > 0 && (
-                <section className="panel p-4">
-                  <h2 className="text-sm font-semibold text-slate-100">Warnings</h2>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-400">
-                    {res.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-                  </ul>
-                </section>
-              )}
 
               <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
                 <Table domains={res.domains} selected={sel} onSelect={setSel} />
@@ -335,9 +320,6 @@ function Live({ domains, selected, stats, warnings, onSelect }) {
               Live scan evidence
             </div>
             <h2 className="text-lg font-semibold text-slate-50">Found beneath the surface so far</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              These results are provisional. Each row is a network clue TraceShadow has already seen, and the final dashboard will tighten the counts once the browser scan closes.
-            </p>
           </div>
 
           <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -367,14 +349,6 @@ function Live({ domains, selected, stats, warnings, onSelect }) {
         </div>
       )}
 
-      {warnings.length > 0 && (
-        <div className="border-t border-line/80 px-5 py-4">
-          <h3 className="text-sm font-semibold text-amber-100">Live warnings</h3>
-          <ul className="mt-2 space-y-1 text-sm text-amber-100/80">
-            {warnings.map((warning) => <li key={warning}>{warning}</li>)}
-          </ul>
-        </div>
-      )}
     </section>
   )
 }
@@ -582,9 +556,6 @@ function Score({ result: res }) {
       </div>
 
       <p className="mt-4 text-sm leading-6 text-slate-300">{res.score.explanation}</p>
-      <p className="mt-3 text-xs leading-5 text-slate-500">
-        Formula: third-party domains, total requests, and domain count. This is educational, not a professional audit.
-      </p>
     </section>
   )
 }
