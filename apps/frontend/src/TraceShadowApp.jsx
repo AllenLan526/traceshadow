@@ -183,6 +183,8 @@ export default function App() {
                 <Table domains={res.domains} selected={sel} onSelect={setSel} />
                 <Info domain={sel} />
               </div>
+
+              <Debug result={res} />
             </>
           )}
         </div>
@@ -435,8 +437,16 @@ function Graph({ result: res, selected: sel, onSelect }) {
       })
     }
     for (const edge of res.graph.edges) {
+      const kind = edge.kind || 'direct'
       elements.push({
-        data: { id: edge.id, source: edge.source, target: edge.target, label: String(edge.requestCount) }
+        classes: kind,
+        data: {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          kind,
+          label: String(edge.requestCount)
+        }
       })
     }
 
@@ -481,6 +491,27 @@ function Graph({ result: res, selected: sel, onSelect }) {
             width: 1.4
           }
         },
+        {
+          selector: 'edge.direct',
+          style: {
+            'line-style': 'solid',
+            'line-color': '#26d6c5',
+            'target-arrow-color': '#26d6c5',
+            width: 1.8,
+            opacity: 0.85
+          }
+        },
+        {
+          selector: 'edge.indirect',
+          style: {
+            'line-style': 'dashed',
+            'line-dash-pattern': [6, 4],
+            'line-color': '#c6a0ff',
+            'target-arrow-color': '#c6a0ff',
+            width: 1.4,
+            opacity: 0.85
+          }
+        },
         { selector: 'node:selected', style: { 'border-color': '#ffffff', 'border-width': 3 } }
       ],
       layout: { name: 'concentric', minNodeSpacing: 58, padding: 42 }
@@ -515,7 +546,20 @@ function Graph({ result: res, selected: sel, onSelect }) {
     <section className="panel overflow-hidden">
       <div className="border-b border-line/80 px-5 py-4">
         <h2 className="text-base font-semibold text-slate-50">Hidden network map</h2>
-        <p className="mt-1 text-sm text-slate-400">Center node is the site. Outer nodes are third-party domains loaded by the page.</p>
+        <p className="mt-1 text-sm text-slate-400">Center node is the site. Solid arrows are loaded directly by the page; dashed arrows are loaded by another third-party script, iframe, or HTTP redirect.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-400">
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-block h-[2px] w-8 rounded-full" style={{ backgroundColor: '#26d6c5' }} />
+            Direct (page invoked)
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span
+              className="inline-block h-0 w-8 rounded-full"
+              style={{ borderTop: '2px dashed #c6a0ff' }}
+            />
+            Indirect (third-party invoked)
+          </span>
+        </div>
       </div>
       <div ref={ref} className="h-[420px] w-full" />
     </section>
@@ -626,6 +670,104 @@ function Info({ domain: dom }) {
         </ul>
       </div>
     </section>
+  )
+}
+
+function Debug({ result: res }) {
+  const edges = res.graph?.edges ?? []
+  const nodes = res.graph?.nodes ?? []
+  const labelById = new Map(nodes.map((n) => [n.id, n.label || n.id]))
+
+  const direct = []
+  const indirect = []
+  for (const e of edges) {
+    if (e.kind === 'indirect') indirect.push(e)
+    else direct.push(e)
+  }
+  direct.sort((a, b) => b.requestCount - a.requestCount)
+  indirect.sort((a, b) => b.requestCount - a.requestCount)
+
+  return (
+    <section className="panel overflow-hidden">
+      <div className="border-b border-line/80 px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-50">Debug: connections</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Every edge captured during the scan, classified as direct (page invoked) or indirect (another third party invoked it, including iframes and HTTP redirects).
+            </p>
+          </div>
+          <div className="flex flex-none flex-col items-end gap-1 text-xs text-slate-400">
+            <span>
+              <span className="font-semibold text-sea">{direct.length}</span> direct
+            </span>
+            <span>
+              <span className="font-semibold" style={{ color: '#c6a0ff' }}>{indirect.length}</span> indirect
+            </span>
+            <span>
+              <span className="font-semibold text-slate-200">{nodes.length}</span> nodes
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-0 lg:grid-cols-2">
+        <DebugList
+          title="Direct (solid)"
+          accent="#26d6c5"
+          edges={direct}
+          labelById={labelById}
+          empty="No direct edges captured."
+        />
+        <DebugList
+          title="Indirect (dashed)"
+          accent="#c6a0ff"
+          edges={indirect}
+          labelById={labelById}
+          empty="No indirect edges captured. The page may not have chained any third-party scripts."
+          borderLeft
+        />
+      </div>
+    </section>
+  )
+}
+
+function DebugList({ title, accent, edges, labelById, empty, borderLeft }) {
+  return (
+    <div className={`p-5 ${borderLeft ? 'lg:border-l lg:border-line/80' : ''}`}>
+      <div className="mb-3 flex items-center gap-2">
+        <span
+          className="inline-block h-[3px] w-6 rounded-full"
+          style={{ backgroundColor: accent }}
+        />
+        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+        <span className="text-xs text-slate-500">({edges.length})</span>
+      </div>
+
+      {edges.length === 0 ? (
+        <p className="text-sm text-slate-500">{empty}</p>
+      ) : (
+        <ul className="max-h-[320px] space-y-1 overflow-auto pr-1 font-mono text-xs leading-5 text-slate-300">
+          {edges.map((e) => (
+            <li
+              key={e.id}
+              className="flex items-center gap-2 rounded border border-line/40 bg-ink/40 px-2 py-1.5"
+            >
+              <span className="truncate text-slate-100" title={e.source}>
+                {labelById.get(e.source) || e.source}
+              </span>
+              <span style={{ color: accent }}>→</span>
+              <span className="truncate text-slate-100" title={e.target}>
+                {labelById.get(e.target) || e.target}
+              </span>
+              <span className="ml-auto flex-none rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400">
+                {e.requestCount} req
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

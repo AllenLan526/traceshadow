@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import time
+from collections import defaultdict, deque
 from typing import Callable
 from urllib.parse import urlparse, urlunparse
 
@@ -144,11 +145,25 @@ async def scan(input_url: str, send: Send | None = None):
             page = await context.new_page()
             page.set_default_timeout(SCAN_TIMEOUT_MS)
 
+            cdp = await context.new_cdp_session(page)
+            await cdp.send("Network.enable")
+
+            init_q: dict[str, deque] = defaultdict(deque)
+
+            def on_cdp_will_send(evt: dict):
+                rd = evt.get("request") or {}
+                u = rd.get("url") or ""
+                if not u:
+                    return
+                init_q[u].append(evt.get("initiator") or {})
+
+            cdp.on("Network.requestWillBeSent", on_cdp_will_send)
+
             emit(send, {"type": "status", "message": "Collecting network requests..."})
 
             def on_request(req: PlaywrightRequest):
                 nonlocal tp_cnt
-                x = get_req(req)
+                x = get_req(req, init_q, root_dom)
                 if not x:
                     return
 
@@ -194,7 +209,7 @@ async def scan(input_url: str, send: Send | None = None):
             await browser.close()
 
 
-def get_req(req: PlaywrightRequest):
+def get_req(req: PlaywrightRequest, init_q: dict[str, deque], root_dom: str):
     url = req.url
     if not is_http_url(url):
         return None
@@ -203,12 +218,103 @@ def get_req(req: PlaywrightRequest):
     if not host:
         return None
 
+    domain = base_dom(url) or host.lower()
+
+    frame_url = ""
+    try:
+        if req.frame:
+            frame_url = req.frame.url or ""
+    except Exception:
+        frame_url = ""
+
+    init = {}
+    q = init_q.get(url)
+    if q:
+        init = q.popleft()
+    init_type = init.get("type", "") if init else ""
+    init_url = init_url_of(init)
+
+    chain = []
+    cur = None
+    try:
+        cur = req.redirected_from
+    except Exception:
+        cur = None
+    while cur is not None:
+        chain.append(cur.url)
+        try:
+            cur = cur.redirected_from
+        except Exception:
+            cur = None
+    chain.reverse()
+
+    src_url, src_dom = src_of(init_url, init_type, frame_url, root_dom, chain)
+
     return {
         "url": url,
-        "domain": host.lower(),
+        "domain": domain,
+        "hostname": host.lower(),
         "resourceType": map_res(req.resource_type),
         "thirdParty": False,
+        "frameUrl": frame_url,
+        "frameDomain": base_dom(frame_url),
+        "initiatorType": init_type,
+        "initiatorUrl": init_url,
+        "initiatorDomain": base_dom(init_url),
+        "sourceUrl": src_url,
+        "sourceDomain": src_dom,
+        "redirectChain": chain,
+        "viaRedirect": bool(chain),
     }
+
+
+def init_url_of(init: dict) -> str:
+    if not init:
+        return ""
+    t = init.get("type", "")
+    if t == "script":
+        u = stack_url(init.get("stack"))
+        if u:
+            return u
+        return init.get("url") or ""
+    if t == "parser":
+        return init.get("url") or ""
+    return init.get("url") or ""
+
+
+def stack_url(stack) -> str:
+    if not stack:
+        return ""
+    for fr in stack.get("callFrames") or []:
+        u = fr.get("url")
+        if u:
+            return u
+    return stack_url(stack.get("parent"))
+
+
+def src_of(init_url: str, init_type: str, frame_url: str, root_dom: str, chain: list[str]):
+    if chain:
+        prev = chain[-1]
+        d = base_dom(prev)
+        if d:
+            return prev, d
+    if init_type == "script" and init_url:
+        d = base_dom(init_url)
+        if d:
+            return init_url, d
+    if init_type == "parser" and init_url:
+        d = base_dom(init_url)
+        if d:
+            return init_url, d
+    if init_url:
+        d = base_dom(init_url)
+        if d:
+            return init_url, d
+    if frame_url and frame_url != "about:blank":
+        d = base_dom(frame_url)
+        if d:
+            return frame_url, d
+    return "", root_dom
 
 
 def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan_time_ms: int):
@@ -231,6 +337,35 @@ def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan
     if not doms:
         warns.append("No third-party domains were detected during this scan window.")
 
+    edge_map: dict[tuple[str, str, str], dict] = {}
+    extra_doms: set[str] = set()
+
+    for req in reqs:
+        tgt = req.get("domain") or base_dom(req["url"])
+        src = req.get("sourceDomain") or first_dom
+        if not src or not tgt or src == tgt:
+            continue
+        kind = "direct" if src == first_dom else "indirect"
+        if req.get("viaRedirect"):
+            kind = "indirect"
+        key = (src, tgt, kind)
+        cur = edge_map.get(key)
+        if cur:
+            cur["requestCount"] += 1
+        else:
+            edge_map[key] = {
+                "id": f"{src}->{tgt}:{kind}",
+                "source": src,
+                "target": tgt,
+                "kind": kind,
+                "requestCount": 1,
+            }
+        if src != first_dom:
+            extra_doms.add(src)
+        if tgt != first_dom:
+            extra_doms.add(tgt)
+
+    known = {d["domain"] for d in doms}
     nodes = [{"id": first_dom, "label": first_dom, "type": "firstParty"}]
     for dom in doms:
         nodes.append({
@@ -239,15 +374,21 @@ def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan
             "type": "thirdParty",
             "category": dom["category"],
         })
-
-    edges = []
-    for dom in doms:
-        edges.append({
-            "id": f"{first_dom}-{dom['domain']}",
-            "source": first_dom,
-            "target": dom["domain"],
-            "requestCount": dom["requestCount"],
+    for extra in sorted(extra_doms):
+        if extra in known or extra == first_dom:
+            continue
+        nodes.append({
+            "id": extra,
+            "label": short(extra),
+            "type": "thirdParty",
+            "category": get_cat(extra),
         })
+
+    node_ids = {n["id"] for n in nodes}
+    edges = []
+    for e in sorted(edge_map.values(), key=lambda e: e["requestCount"], reverse=True):
+        if e["source"] in node_ids and e["target"] in node_ids:
+            edges.append(e)
 
     return {
         "inputUrl": input_url,
@@ -383,11 +524,20 @@ def cat_msg(cat: Cat):
 
 def short(domain: str):
     known = {
-        "www.google-analytics.com": "Google Analytics",
         "google-analytics.com": "Google Analytics",
-        "www.googletagmanager.com": "Google Tag Manager",
         "googletagmanager.com": "Google Tag Manager",
-        "connect.facebook.net": "Facebook",
+        "doubleclick.net": "DoubleClick",
+        "googlesyndication.com": "Google Ads",
+        "facebook.net": "Facebook",
+        "facebook.com": "Facebook",
+        "youtube.com": "YouTube",
+        "twitter.com": "Twitter / X",
+        "x.com": "Twitter / X",
+        "tiktok.com": "TikTok",
+        "linkedin.com": "LinkedIn",
+        "cloudflare.com": "Cloudflare",
+        "cloudfront.net": "CloudFront",
+        "jsdelivr.net": "jsDelivr",
     }
     return known.get(domain, domain.removeprefix("www."))
 
