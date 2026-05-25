@@ -161,8 +161,6 @@ export default function App() {
                 <Table domains={res.domains} selected={sel} onSelect={setSel} />
                 <Info domain={sel} />
               </div>
-
-              <Debug result={res} />
             </>
           )}
         </div>
@@ -625,104 +623,6 @@ function Info({ domain: dom }) {
         </ul>
       </div>
     </section>
-  )
-}
-
-function Debug({ result: res }) {
-  const edges = res.graph?.edges ?? []
-  const nodes = res.graph?.nodes ?? []
-  const labelById = new Map(nodes.map((n) => [n.id, n.label || n.id]))
-
-  const direct = []
-  const indirect = []
-  for (const e of edges) {
-    if (e.kind === 'indirect') indirect.push(e)
-    else direct.push(e)
-  }
-  direct.sort((a, b) => b.requestCount - a.requestCount)
-  indirect.sort((a, b) => b.requestCount - a.requestCount)
-
-  return (
-    <section className="panel overflow-hidden">
-      <div className="border-b border-line/80 px-5 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-slate-50">Debug: connections</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Every edge captured during the scan, classified as direct (page invoked) or indirect (another third party invoked it, including iframes and HTTP redirects).
-            </p>
-          </div>
-          <div className="flex flex-none flex-col items-end gap-1 text-xs text-slate-400">
-            <span>
-              <span className="font-semibold text-sea">{direct.length}</span> direct
-            </span>
-            <span>
-              <span className="font-semibold" style={{ color: '#c6a0ff' }}>{indirect.length}</span> indirect
-            </span>
-            <span>
-              <span className="font-semibold text-slate-200">{nodes.length}</span> nodes
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-0 lg:grid-cols-2">
-        <DebugList
-          title="Direct (solid)"
-          accent="#26d6c5"
-          edges={direct}
-          labelById={labelById}
-          empty="No direct edges captured."
-        />
-        <DebugList
-          title="Indirect (dashed)"
-          accent="#c6a0ff"
-          edges={indirect}
-          labelById={labelById}
-          empty="No indirect edges captured. The page may not have chained any third-party scripts."
-          borderLeft
-        />
-      </div>
-    </section>
-  )
-}
-
-function DebugList({ title, accent, edges, labelById, empty, borderLeft }) {
-  return (
-    <div className={`p-5 ${borderLeft ? 'lg:border-l lg:border-line/80' : ''}`}>
-      <div className="mb-3 flex items-center gap-2">
-        <span
-          className="inline-block h-[3px] w-6 rounded-full"
-          style={{ backgroundColor: accent }}
-        />
-        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
-        <span className="text-xs text-slate-500">({edges.length})</span>
-      </div>
-
-      {edges.length === 0 ? (
-        <p className="text-sm text-slate-500">{empty}</p>
-      ) : (
-        <ul className="max-h-[320px] space-y-1 overflow-auto pr-1 font-mono text-xs leading-5 text-slate-300">
-          {edges.map((e) => (
-            <li
-              key={e.id}
-              className="flex items-center gap-2 rounded border border-line/40 bg-ink/40 px-2 py-1.5"
-            >
-              <span className="truncate text-slate-100" title={e.source}>
-                {labelById.get(e.source) || e.source}
-              </span>
-              <span style={{ color: accent }}>→</span>
-              <span className="truncate text-slate-100" title={e.target}>
-                {labelById.get(e.target) || e.target}
-              </span>
-              <span className="ml-auto flex-none rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400">
-                {e.requestCount} req
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   )
 }
 
