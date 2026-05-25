@@ -183,6 +183,7 @@ export function Score({ res }) {
       </div>
 
       <p className="mt-4 text-sm leading-6 text-slate-300">{res.score.explanation}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">Simple estimate only. Not for professional use.</p>
     </section>
   )
 }

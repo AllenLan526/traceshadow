@@ -24,6 +24,8 @@ TraceShadow is designed so a judge can understand it quickly. The app shows:
 - a details panel for the selected domain
 - a simple exposure score based on hidden-domain count and request volume
 
+The score is only a simple estimate. It is not meant for professional use.
+
 ## How To Use It
 
 1. Open the app.
