@@ -11,7 +11,7 @@ from urllib.parse import urlparse, urlunparse
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from playwright.async_api import Request as PlayReq
+from playwright.async_api import Request as PlaywrightRequest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
@@ -20,26 +20,6 @@ Send = Callable[[Evt], None]
 
 SCAN_TIMEOUT_MS = int(os.getenv("SCAN_TIMEOUT_MS", "15000"))
 SAMPLE_LIMIT = 5
-WAIT_IDLE_MS = 3500
-WAIT_IDLE_TIMEOUT_MS = 1000
-USER_AGENT = "TraceShadow/0.1 educational scanner"
-GOOD_RES = {"script", "image", "stylesheet", "document", "xhr", "fetch", "font", "media"}
-KNOWN = {
-    "google-analytics.com": "Google Analytics",
-    "googletagmanager.com": "Google Tag Manager",
-    "doubleclick.net": "DoubleClick",
-    "googlesyndication.com": "Google Ads",
-    "facebook.net": "Facebook",
-    "facebook.com": "Facebook",
-    "youtube.com": "YouTube",
-    "twitter.com": "Twitter / X",
-    "x.com": "Twitter / X",
-    "tiktok.com": "TikTok",
-    "linkedin.com": "LinkedIn",
-    "cloudflare.com": "Cloudflare",
-    "cloudfront.net": "CloudFront",
-    "jsdelivr.net": "jsDelivr",
-}
 
 app = FastAPI(title="TraceShadow API")
 
@@ -65,36 +45,51 @@ async def health():
 
 @app.post("/api/analyze")
 async def analyze(request: Request):
-    url = read_url(await request.json())
+    body = await request.json()
+    url = body.get("url") if isinstance(body, dict) else ""
 
     try:
         return await scan(url)
-    except AppError as e:
-        return err_json(str(e), e.code, e.status)
-    except Exception as e:
-        return err_json(bad(e), "scan_failed", 500)
+    except AppError as err:
+        return JSONResponse(
+            status_code=err.status,
+            content={"error": str(err), "code": err.code},
+        )
+    except Exception as err:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": bad(err),
+                "code": "scan_failed",
+            },
+        )
 
 
 @app.post("/api/analyze-stream")
 async def analyze_stream(request: Request):
-    url = read_url(await request.json())
+    body = await request.json()
+    url = body.get("url") if isinstance(body, dict) else ""
     q: asyncio.Queue[Evt | None] = asyncio.Queue()
 
     def send(evt: Evt):
         q.put_nowait(evt)
 
-    async def work():
+    async def worker():
         try:
             await scan(url, send)
-        except AppError as e:
-            send({"type": "error", "error": str(e), "code": e.code})
-        except Exception as e:
-            send({"type": "error", "error": bad(e), "code": "scan_failed"})
+        except AppError as err:
+            send({"type": "error", "error": str(err), "code": err.code})
+        except Exception as err:
+            send({
+                "type": "error",
+                "error": bad(err),
+                "code": "scan_failed",
+            })
         finally:
             await q.put(None)
 
     async def stream():
-        task = asyncio.create_task(work())
+        task = asyncio.create_task(worker())
         try:
             while True:
                 evt = await q.get()
@@ -107,94 +102,104 @@ async def analyze_stream(request: Request):
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
-def read_url(body):
-    if isinstance(body, dict):
-        return body.get("url") or ""
-    return ""
-
-
-def err_json(msg: str, code: str, status: int):
-    return JSONResponse(status_code=status, content={"error": msg, "code": code})
-
-
-async def scan(in_url: str, send: Send | None = None):
+async def scan(input_url: str, send: Send | None = None):
     st = time.time()
     emit(send, {"type": "status", "message": "Validating URL..."})
-    url = norm_url(in_url)
-    root_dom = base_dom(url)
+    url = norm_url(input_url)
     reqs = []
     warns = []
     doms = {}
     tp_cnt = 0
+    root_dom = base_dom(url)
 
     emit(send, {"type": "status", "message": "Opening page..."})
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
+        browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
 
         try:
-            ctx = await browser.new_context(
+            context = await browser.new_context(
                 ignore_https_errors=True,
-                user_agent=USER_AGENT,
+                user_agent="TraceShadow/0.1 educational scanner",
             )
-            await ctx.route("**/*", route_req)
 
-            page = await ctx.new_page()
+            async def check_route(route):
+                req_url = route.request.url
+                if not is_http_url(req_url):
+                    await route.abort()
+                    return
+
+                try:
+                    host = urlparse(req_url).hostname or ""
+                    if blocked_host(host):
+                        await route.abort()
+                        return
+                except Exception:
+                    await route.abort()
+                    return
+
+                await route.continue_()
+
+            await context.route("**/*", check_route)
+            page = await context.new_page()
             page.set_default_timeout(SCAN_TIMEOUT_MS)
 
-            cdp = await ctx.new_cdp_session(page)
+            cdp = await context.new_cdp_session(page)
             await cdp.send("Network.enable")
 
             init_q: dict[str, deque] = defaultdict(deque)
 
-            def on_will_send(evt: dict):
-                req = evt.get("request") or {}
-                url = req.get("url") or ""
-                if not url:
+            def on_cdp_will_send(evt: dict):
+                rd = evt.get("request") or {}
+                u = rd.get("url") or ""
+                if not u:
                     return
-                init_q[url].append(evt.get("initiator") or {})
+                init_q[u].append(evt.get("initiator") or {})
 
-            cdp.on("Network.requestWillBeSent", on_will_send)
+            cdp.on("Network.requestWillBeSent", on_cdp_will_send)
 
             emit(send, {"type": "status", "message": "Collecting network requests..."})
 
-            def on_req(req: PlayReq):
+            def on_request(req: PlaywrightRequest):
                 nonlocal tp_cnt
-                item = get_req(req, init_q, root_dom)
-                if not item:
+                x = get_req(req, init_q, root_dom)
+                if not x:
                     return
 
-                reqs.append(item)
-                if base_dom(item["url"]) == root_dom:
-                    return
+                reqs.append(x)
 
-                tp_cnt += 1
-                dom = add_dom(doms, item)
-                emit(send, {
-                    "type": "domain",
-                    "domain": dom,
-                    "totalRequests": len(reqs),
-                    "thirdPartyRequestCount": tp_cnt,
-                    "uniqueThirdPartyDomains": len(doms),
-                })
+                if base_dom(x["url"]) != root_dom:
+                    tp_cnt += 1
+                    dom = add(doms, x)
+                    emit(send, {
+                        "type": "domain",
+                        "domain": dom,
+                        "totalRequests": len(reqs),
+                        "thirdPartyRequestCount": tp_cnt,
+                        "uniqueThirdPartyDomains": len(doms),
+                    })
 
-            page.on("request", on_req)
+            page.on("request", on_request)
 
-            timed_out, res = await open_page(page, url, reqs)
+            timed_out = False
+            res = None
+            try:
+                res = await page.goto(url, wait_until="domcontentloaded", timeout=SCAN_TIMEOUT_MS)
+            except PlaywrightTimeoutError:
+                if not reqs:
+                    raise
+                timed_out = True
+
             if res is None and not timed_out:
-                add_warn(
-                    warns,
-                    "The page opened, but Playwright did not receive a normal document response.",
-                    send,
-                )
+                warn(warns, "The page opened, but Playwright did not receive a normal document response.", send)
 
-            await wait_idle(page, timed_out, warns, send)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=1000 if timed_out else 3500)
+            except Exception:
+                warn(warns, "Some requests were still loading after the scan window closed.", send)
 
             emit(send, {"type": "status", "message": "Summarizing hidden domains..."})
-            out = make_result(in_url, page.url, reqs, warns, int((time.time() - st) * 1000))
+            out = make(input_url, page.url, reqs, warns, int((time.time() - st) * 1000))
             emit(send, {"type": "status", "message": "Building graph..."})
             emit(send, {"type": "result", "result": out})
             return out
@@ -202,45 +207,7 @@ async def scan(in_url: str, send: Send | None = None):
             await browser.close()
 
 
-async def route_req(route):
-    req_url = route.request.url
-    if not is_http_url(req_url):
-        await route.abort()
-        return
-
-    try:
-        host = urlparse(req_url).hostname or ""
-        if blocked_host(host):
-            await route.abort()
-            return
-    except Exception:
-        await route.abort()
-        return
-
-    await route.continue_()
-
-
-async def open_page(page, url: str, reqs: list[dict]):
-    timed_out = False
-    res = None
-    try:
-        res = await page.goto(url, wait_until="domcontentloaded", timeout=SCAN_TIMEOUT_MS)
-    except PlaywrightTimeoutError:
-        if not reqs:
-            raise
-        timed_out = True
-    return timed_out, res
-
-
-async def wait_idle(page, timed_out: bool, warns: list[str], send: Send | None):
-    ms = WAIT_IDLE_TIMEOUT_MS if timed_out else WAIT_IDLE_MS
-    try:
-        await page.wait_for_load_state("networkidle", timeout=ms)
-    except Exception:
-        add_warn(warns, "Some requests were still loading after the scan window closed.", send)
-
-
-def get_req(req: PlayReq, init_q: dict[str, deque], root_dom: str):
+def get_req(req: PlaywrightRequest, init_q: dict[str, deque], root_dom: str):
     url = req.url
     if not is_http_url(url):
         return None
@@ -250,6 +217,7 @@ def get_req(req: PlayReq, init_q: dict[str, deque], root_dom: str):
         return None
 
     domain = base_dom(url) or host.lower()
+
     frame_url = ""
     try:
         if req.frame:
@@ -261,10 +229,23 @@ def get_req(req: PlayReq, init_q: dict[str, deque], root_dom: str):
     q = init_q.get(url)
     if q:
         init = q.popleft()
-
     init_type = init.get("type", "") if init else ""
     init_url = init_url_of(init)
-    chain = redirect_chain(req)
+
+    chain = []
+    cur = None
+    try:
+        cur = req.redirected_from
+    except Exception:
+        cur = None
+    while cur is not None:
+        chain.append(cur.url)
+        try:
+            cur = cur.redirected_from
+        except Exception:
+            cur = None
+    chain.reverse()
+
     src_url, src_dom = src_of(init_url, init_type, frame_url, root_dom, chain)
 
     return {
@@ -285,95 +266,127 @@ def get_req(req: PlayReq, init_q: dict[str, deque], root_dom: str):
     }
 
 
-def redirect_chain(req: PlayReq):
-    out = []
-    cur = None
-    try:
-        cur = req.redirected_from
-    except Exception:
-        cur = None
-
-    while cur is not None:
-        out.append(cur.url)
-        try:
-            cur = cur.redirected_from
-        except Exception:
-            cur = None
-
-    out.reverse()
-    return out
-
-
-def init_url_of(init: dict):
+def init_url_of(init: dict) -> str:
     if not init:
         return ""
-
-    kind = init.get("type", "")
-    if kind == "script":
-        url = stack_url(init.get("stack"))
-        if url:
-            return url
-
+    t = init.get("type", "")
+    if t == "script":
+        u = stack_url(init.get("stack"))
+        if u:
+            return u
+        return init.get("url") or ""
+    if t == "parser":
+        return init.get("url") or ""
     return init.get("url") or ""
 
 
-def stack_url(stack):
+def stack_url(stack) -> str:
     if not stack:
         return ""
     for fr in stack.get("callFrames") or []:
-        url = fr.get("url")
-        if url:
-            return url
+        u = fr.get("url")
+        if u:
+            return u
     return stack_url(stack.get("parent"))
 
 
 def src_of(init_url: str, init_type: str, frame_url: str, root_dom: str, chain: list[str]):
     if chain:
         prev = chain[-1]
-        dom = base_dom(prev)
-        if dom:
-            return prev, dom
-
-    if init_type in {"script", "parser"} and init_url:
-        dom = base_dom(init_url)
-        if dom:
-            return init_url, dom
-
+        d = base_dom(prev)
+        if d:
+            return prev, d
+    if init_type == "script" and init_url:
+        d = base_dom(init_url)
+        if d:
+            return init_url, d
+    if init_type == "parser" and init_url:
+        d = base_dom(init_url)
+        if d:
+            return init_url, d
     if init_url:
-        dom = base_dom(init_url)
-        if dom:
-            return init_url, dom
-
+        d = base_dom(init_url)
+        if d:
+            return init_url, d
     if frame_url and frame_url != "about:blank":
-        dom = base_dom(frame_url)
-        if dom:
-            return frame_url, dom
-
+        d = base_dom(frame_url)
+        if d:
+            return frame_url, d
     return "", root_dom
 
 
-def make_result(in_url: str, final_url: str, raw: list[dict], warns: list[str], scan_time_ms: int):
+def make(input_url: str, final_url: str, raw: list[dict], warns: list[str], scan_time_ms: int):
     first_dom = base_dom(final_url)
     reqs = []
-    third = []
 
     for req in raw:
         cur = dict(req)
         cur["thirdParty"] = base_dom(req["url"]) != first_dom
         reqs.append(cur)
-        if cur["thirdParty"]:
-            third.append(cur)
 
-    doms = group_doms(third)
+    third = []
+    for req in reqs:
+        if req["thirdParty"]:
+            third.append(req)
+    doms = group(third)
     score = score_of(len(reqs), len(doms))
 
     if not doms:
         warns.append("No third-party domains were detected during this scan window.")
 
-    nodes, edges = build_graph(reqs, doms, first_dom)
+    edge_map: dict[tuple[str, str, str], dict] = {}
+    extra_doms: set[str] = set()
+
+    for req in reqs:
+        tgt = req.get("domain") or base_dom(req["url"])
+        src = req.get("sourceDomain") or first_dom
+        if not src or not tgt or src == tgt:
+            continue
+        kind = "direct" if src == first_dom else "indirect"
+        if req.get("viaRedirect"):
+            kind = "indirect"
+        key = (src, tgt, kind)
+        cur = edge_map.get(key)
+        if cur:
+            cur["requestCount"] += 1
+        else:
+            edge_map[key] = {
+                "id": f"{src}->{tgt}:{kind}",
+                "source": src,
+                "target": tgt,
+                "kind": kind,
+                "requestCount": 1,
+            }
+        if src != first_dom:
+            extra_doms.add(src)
+        if tgt != first_dom:
+            extra_doms.add(tgt)
+
+    known = {d["domain"] for d in doms}
+    nodes = [{"id": first_dom, "label": first_dom, "type": "firstParty"}]
+    for dom in doms:
+        nodes.append({
+            "id": dom["domain"],
+            "label": short(dom["domain"]),
+            "type": "thirdParty",
+        })
+    for extra in sorted(extra_doms):
+        if extra in known or extra == first_dom:
+            continue
+        nodes.append({
+            "id": extra,
+            "label": short(extra),
+            "type": "thirdParty",
+        })
+
+    node_ids = {n["id"] for n in nodes}
+    edges = []
+    for e in sorted(edge_map.values(), key=lambda e: e["requestCount"], reverse=True):
+        if e["source"] in node_ids and e["target"] in node_ids:
+            edges.append(e)
 
     return {
-        "inputUrl": in_url,
+        "inputUrl": input_url,
         "finalUrl": final_url,
         "firstPartyDomain": first_dom,
         "scanTimeMs": scan_time_ms,
@@ -387,67 +400,7 @@ def make_result(in_url: str, final_url: str, raw: list[dict], warns: list[str], 
     }
 
 
-def build_graph(reqs: list[dict], doms: list[dict], first_dom: str):
-    edge_map: dict[tuple[str, str, str], dict] = {}
-    extra = set()
-
-    for req in reqs:
-        tgt = req.get("domain") or base_dom(req["url"])
-        src = req.get("sourceDomain") or first_dom
-        if not src or not tgt or src == tgt:
-            continue
-
-        kind = "direct"
-        if src != first_dom or req.get("viaRedirect"):
-            kind = "indirect"
-
-        key = (src, tgt, kind)
-        cur = edge_map.get(key)
-        if cur:
-            cur["requestCount"] += 1
-        else:
-            edge_map[key] = {
-                "id": f"{src}->{tgt}:{kind}",
-                "source": src,
-                "target": tgt,
-                "kind": kind,
-                "requestCount": 1,
-            }
-
-        if src != first_dom:
-            extra.add(src)
-        if tgt != first_dom:
-            extra.add(tgt)
-
-    known = {dom["domain"] for dom in doms}
-    nodes = [{"id": first_dom, "label": first_dom, "type": "firstParty"}]
-
-    for dom in doms:
-        nodes.append({
-            "id": dom["domain"],
-            "label": short(dom["domain"]),
-            "type": "thirdParty",
-        })
-
-    for dom in sorted(extra):
-        if dom == first_dom or dom in known:
-            continue
-        nodes.append({
-            "id": dom,
-            "label": short(dom),
-            "type": "thirdParty",
-        })
-
-    ids = {node["id"] for node in nodes}
-    edges = []
-    for edge in sorted(edge_map.values(), key=lambda x: x["requestCount"], reverse=True):
-        if edge["source"] in ids and edge["target"] in ids:
-            edges.append(edge)
-
-    return nodes, edges
-
-
-def add_dom(mp: dict[str, dict], req: dict):
+def add(mp: dict[str, dict], req: dict):
     cur = mp.get(req["domain"])
     if cur:
         cur["requestCount"] += 1
@@ -468,10 +421,10 @@ def add_dom(mp: dict[str, dict], req: dict):
     return cur
 
 
-def group_doms(reqs: list[dict]):
+def group(reqs: list[dict]):
     mp = {}
     for req in reqs:
-        add_dom(mp, req)
+        add(mp, req)
     out = list(mp.values())
     out.sort(key=lambda x: x["requestCount"], reverse=True)
     return out
@@ -484,6 +437,7 @@ def score_of(total_requests: int, unique_domains: int):
         value += 10
     if unique_domains > 10:
         value += 10
+
     value = min(value, 100)
 
     label = "Low exposure"
@@ -494,23 +448,38 @@ def score_of(total_requests: int, unique_domains: int):
     elif value > 25:
         label = "Moderate exposure"
 
-    msg = "This page has limited third-party activity in this scan."
+    explanation = "This page has limited third-party activity in this scan."
     if unique_domains > 0:
-        msg = f"This page loads {unique_domains} third-party domains across {total_requests} requests."
+        explanation = f"This page loads {unique_domains} third-party domains across {total_requests} requests."
 
-    return {"value": value, "label": label, "explanation": msg}
-
+    return {"value": value, "label": label, "explanation": explanation}
 
 def dom_msg(domain: str):
     return f"{short(domain)} is a third-party domain that loaded resources while the page was opening."
 
 
 def short(domain: str):
-    return KNOWN.get(domain, domain.removeprefix("www."))
+    known = {
+        "google-analytics.com": "Google Analytics",
+        "googletagmanager.com": "Google Tag Manager",
+        "doubleclick.net": "DoubleClick",
+        "googlesyndication.com": "Google Ads",
+        "facebook.net": "Facebook",
+        "facebook.com": "Facebook",
+        "youtube.com": "YouTube",
+        "twitter.com": "Twitter / X",
+        "x.com": "Twitter / X",
+        "tiktok.com": "TikTok",
+        "linkedin.com": "LinkedIn",
+        "cloudflare.com": "Cloudflare",
+        "cloudfront.net": "CloudFront",
+        "jsdelivr.net": "jsDelivr",
+    }
+    return known.get(domain, domain.removeprefix("www."))
 
 
-def norm_url(in_url: str):
-    s = in_url.strip()
+def norm_url(input_url: str):
+    s = input_url.strip()
     if not s:
         raise AppError("Enter a URL to scan.")
     if s.startswith("file:"):
@@ -518,9 +487,9 @@ def norm_url(in_url: str):
 
     if "://" not in s:
         s = f"https://{s}"
-
     p = urlparse(s)
-    if p.scheme not in {"http", "https"} or not p.netloc:
+
+    if p.scheme not in ("http", "https") or not p.netloc:
         raise AppError("That does not look like a valid URL.")
     if p.username or p.password:
         raise AppError("URLs with usernames or passwords are not allowed.")
@@ -596,7 +565,7 @@ def base_dom(url: str):
 
 
 def map_res(kind: str):
-    if kind in GOOD_RES:
+    if kind in {"script", "image", "stylesheet", "document", "xhr", "fetch", "font", "media"}:
         return kind
     return "other"
 
@@ -605,14 +574,14 @@ def is_http_url(url: str):
     return url.startswith("http://") or url.startswith("https://")
 
 
-def add_warn(warns: list[str], msg: str, send: Send | None):
+def warn(warns: list[str], msg: str, send: Send | None):
     warns.append(msg)
     emit(send, {"type": "warning", "message": msg})
 
 
-def emit(send: Send | None, evt: Evt):
+def emit(send: Send | None, event: Evt):
     if send:
-        send(evt)
+        send(event)
 
 
 def bad(err: Exception):
@@ -620,7 +589,7 @@ def bad(err: Exception):
 
 
 class AppError(Exception):
-    def __init__(self, msg: str, status: int = 400, code: str = "bad_request"):
-        super().__init__(msg)
+    def __init__(self, message: str, status: int = 400, code: str = "bad_request"):
+        super().__init__(message)
         self.status = status
         self.code = code
