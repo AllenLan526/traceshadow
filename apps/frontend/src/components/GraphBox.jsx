@@ -98,16 +98,12 @@ export default function GraphBox({ res, sel, onSelect }) {
       <div className="border-b border-line/80 px-5 py-4">
         <h2 className="text-base font-semibold text-slate-50">Hidden network map</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Center node is the site. Solid arrows are loaded directly by the page; dashed arrows are loaded by another third-party script, iframe, or HTTP redirect.
+          Center node is the site. Lines show the connections between the page and the outside domains found during the scan.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-400">
           <span className="inline-flex items-center gap-2">
             <span className="inline-block h-[2px] w-8 rounded-full" style={{ backgroundColor: '#26d6c5' }} />
-            Direct (page invoked)
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="inline-block h-0 w-8 rounded-full" style={{ borderTop: '2px dashed #c6a0ff' }} />
-            Indirect (third-party invoked)
+            Network link
           </span>
         </div>
       </div>

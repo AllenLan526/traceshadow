@@ -19,8 +19,7 @@ TraceShadow is designed so a judge can understand it quickly. The app shows:
 - a live scan panel that updates while the page is loading
 - summary cards for requests, third-party activity, hidden domains, and scan time
 - a network graph centered on the scanned website
-- solid arrows for resources loaded directly by the page
-- dashed arrows for resources loaded indirectly by another script, iframe, or redirect
+- graph links showing how the scanned site connects to outside domains
 - a domain table with request counts, resource types, and sample URLs
 - a details panel for the selected domain
 - a simple exposure score based on hidden-domain count and request volume
@@ -155,7 +154,7 @@ This is the cleanest 1 to 3 minute demo plan:
 2. Enter a public website URL.
 3. Show the live evidence appearing before the scan finishes.
 4. Explain the summary cards.
-5. Use the graph to point out direct and indirect links.
+5. Use the graph to point out the hidden domain links.
 6. Click a domain and show the sample URLs and request types.
 7. End by reconnecting the result to the theme: what looked like one page was actually a hidden network.
 
